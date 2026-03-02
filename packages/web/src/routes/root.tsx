@@ -2,14 +2,14 @@ import { Outlet, createRootRoute } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 
 export const rootRoute = createRootRoute({
-	component: RootLayout,
+  component: RootLayout,
 });
 
 function RootLayout() {
-	return (
-		<>
-			<Outlet />
-			<Toaster />
-		</>
-	);
+  return (
+    <>
+      <Outlet />
+      <Toaster />
+    </>
+  );
 }

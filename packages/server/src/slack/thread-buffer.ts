@@ -10,42 +10,42 @@
 import type { Attachment } from "../files";
 
 export interface BufferedMessage {
-	userName: string;
-	text: string;
-	ts: string;
-	attachments?: Attachment[];
+  userName: string;
+  text: string;
+  ts: string;
+  attachments?: Attachment[];
 }
 
 export class ThreadBuffer {
-	private buffers = new Map<string, BufferedMessage[]>();
+  private buffers = new Map<string, BufferedMessage[]>();
 
-	private key(channelId: string, threadTs: string): string {
-		return `${channelId}:${threadTs}`;
-	}
+  private key(channelId: string, threadTs: string): string {
+    return `${channelId}:${threadTs}`;
+  }
 
-	register(channelId: string, threadTs: string): void {
-		const k = this.key(channelId, threadTs);
-		if (!this.buffers.has(k)) {
-			this.buffers.set(k, []);
-		}
-	}
+  register(channelId: string, threadTs: string): void {
+    const k = this.key(channelId, threadTs);
+    if (!this.buffers.has(k)) {
+      this.buffers.set(k, []);
+    }
+  }
 
-	hasThread(channelId: string, threadTs: string): boolean {
-		return this.buffers.has(this.key(channelId, threadTs));
-	}
+  hasThread(channelId: string, threadTs: string): boolean {
+    return this.buffers.has(this.key(channelId, threadTs));
+  }
 
-	append(channelId: string, threadTs: string, message: BufferedMessage): void {
-		const buf = this.buffers.get(this.key(channelId, threadTs));
-		if (!buf) return;
-		buf.push(message);
-	}
+  append(channelId: string, threadTs: string, message: BufferedMessage): void {
+    const buf = this.buffers.get(this.key(channelId, threadTs));
+    if (!buf) return;
+    buf.push(message);
+  }
 
-	drain(channelId: string, threadTs: string): BufferedMessage[] {
-		const k = this.key(channelId, threadTs);
-		const buf = this.buffers.get(k);
-		if (!buf) return [];
-		const messages = [...buf];
-		buf.length = 0;
-		return messages;
-	}
+  drain(channelId: string, threadTs: string): BufferedMessage[] {
+    const k = this.key(channelId, threadTs);
+    const buf = this.buffers.get(k);
+    if (!buf) return [];
+    const messages = [...buf];
+    buf.length = 0;
+    return messages;
+  }
 }

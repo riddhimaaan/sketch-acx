@@ -13,25 +13,25 @@ const SESSION_FILE = "session.json";
 const SESSIONS_DIR = "sessions";
 
 function sessionPath(workspaceDir: string, threadTs?: string): string {
-	if (threadTs) {
-		return join(workspaceDir, SESSIONS_DIR, `${threadTs}.json`);
-	}
-	return join(workspaceDir, SESSION_FILE);
+  if (threadTs) {
+    return join(workspaceDir, SESSIONS_DIR, `${threadTs}.json`);
+  }
+  return join(workspaceDir, SESSION_FILE);
 }
 
 export async function getSessionId(workspaceDir: string, threadTs?: string): Promise<string | undefined> {
-	try {
-		const data = await readFile(sessionPath(workspaceDir, threadTs), "utf-8");
-		const parsed = JSON.parse(data);
-		return parsed.sessionId;
-	} catch {
-		return undefined;
-	}
+  try {
+    const data = await readFile(sessionPath(workspaceDir, threadTs), "utf-8");
+    const parsed = JSON.parse(data);
+    return parsed.sessionId;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function saveSessionId(workspaceDir: string, sessionId: string, threadTs?: string): Promise<void> {
-	if (threadTs) {
-		await mkdir(join(workspaceDir, SESSIONS_DIR), { recursive: true });
-	}
-	await writeFile(sessionPath(workspaceDir, threadTs), JSON.stringify({ sessionId }));
+  if (threadTs) {
+    await mkdir(join(workspaceDir, SESSIONS_DIR), { recursive: true });
+  }
+  await writeFile(sessionPath(workspaceDir, threadTs), JSON.stringify({ sessionId }));
 }

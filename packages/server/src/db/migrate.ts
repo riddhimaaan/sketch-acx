@@ -13,34 +13,34 @@ import * as m006 from "./migrations/006-settings-jwt-secret";
 import type { DB } from "./schema";
 
 export async function runMigrations(db: Kysely<DB>): Promise<void> {
-	const migrator = new Migrator({
-		db,
-		provider: {
-			async getMigrations() {
-				return {
-					"001-initial": m001,
-					"002-channels": m002,
-					"003-whatsapp-auth": m003,
-					"004-settings": m004,
-					"005-settings-slack-llm": m005,
-					"006-settings-jwt-secret": m006,
-				};
-			},
-		},
-	});
+  const migrator = new Migrator({
+    db,
+    provider: {
+      async getMigrations() {
+        return {
+          "001-initial": m001,
+          "002-channels": m002,
+          "003-whatsapp-auth": m003,
+          "004-settings": m004,
+          "005-settings-slack-llm": m005,
+          "006-settings-jwt-secret": m006,
+        };
+      },
+    },
+  });
 
-	const { error, results } = await migrator.migrateToLatest();
+  const { error, results } = await migrator.migrateToLatest();
 
-	for (const result of results ?? []) {
-		if (result.status === "Success") {
-			console.log(`Migration applied: ${result.migrationName}`);
-		} else if (result.status === "Error") {
-			console.error(`Migration failed: ${result.migrationName}`);
-		}
-	}
+  for (const result of results ?? []) {
+    if (result.status === "Success") {
+      console.log(`Migration applied: ${result.migrationName}`);
+    } else if (result.status === "Error") {
+      console.error(`Migration failed: ${result.migrationName}`);
+    }
+  }
 
-	if (error) {
-		console.error("Migration run failed:", error);
-		process.exit(1);
-	}
+  if (error) {
+    console.error("Migration run failed:", error);
+    process.exit(1);
+  }
 }

@@ -11,17 +11,17 @@ import type { Boom } from "@hapi/boom";
  * socket config to avoid re-fetching participant lists on every sendMessage.
  */
 import {
-	DisconnectReason,
-	type GroupMetadata,
-	type MiscMessageGenerationOptions,
-	type WASocket,
-	type WAVersion,
-	areJidsSameUser,
-	fetchLatestBaileysVersion,
-	getContentType,
-	jidNormalizedUser,
-	makeWASocket,
-	type proto,
+  DisconnectReason,
+  type GroupMetadata,
+  type MiscMessageGenerationOptions,
+  type WASocket,
+  type WAVersion,
+  areJidsSameUser,
+  fetchLatestBaileysVersion,
+  getContentType,
+  jidNormalizedUser,
+  makeWASocket,
+  type proto,
 } from "@whiskeysockets/baileys";
 import type { Kysely } from "kysely";
 import type { DB } from "../db/schema";
@@ -44,30 +44,30 @@ const GROUP_META_TTL_MS = 5 * 60_000;
 let cachedVersion: WAVersion | null = null;
 
 async function getWaVersion(): Promise<WAVersion | undefined> {
-	if (cachedVersion) return cachedVersion;
-	const { version } = await fetchLatestBaileysVersion();
-	cachedVersion = version as WAVersion;
-	return version;
+  if (cachedVersion) return cachedVersion;
+  const { version } = await fetchLatestBaileysVersion();
+  cachedVersion = version as WAVersion;
+  return version;
 }
 
 interface WhatsAppBaseMessage {
-	text: string;
-	jid: string;
-	messageId: string;
-	pushName: string;
-	rawMessage: proto.IWebMessageInfo;
-	mediaType?: string;
+  text: string;
+  jid: string;
+  messageId: string;
+  pushName: string;
+  rawMessage: proto.IWebMessageInfo;
+  mediaType?: string;
 }
 
 export interface WhatsAppDmMessage extends WhatsAppBaseMessage {
-	type: "dm";
-	phoneNumber: string;
+  type: "dm";
+  phoneNumber: string;
 }
 
 export interface WhatsAppGroupMessage extends WhatsAppBaseMessage {
-	type: "group";
-	isMentioned: boolean;
-	senderJid: string;
+  type: "group";
+  isMentioned: boolean;
+  senderJid: string;
 }
 
 export type WhatsAppMessage = WhatsAppDmMessage | WhatsAppGroupMessage;
@@ -75,575 +75,575 @@ export type WhatsAppMessage = WhatsAppDmMessage | WhatsAppGroupMessage;
 export type WhatsAppMessageHandler = (message: WhatsAppMessage) => Promise<void>;
 
 export interface PairingCallbacks {
-	onQr: (qr: string) => Promise<void>;
-	onConnected: (phoneNumber: string) => Promise<void>;
-	onError: (message: string) => Promise<void>;
+  onQr: (qr: string) => Promise<void>;
+  onConnected: (phoneNumber: string) => Promise<void>;
+  onError: (message: string) => Promise<void>;
 }
 
 export interface WhatsAppBotConfig {
-	db: Kysely<DB>;
-	logger: Logger;
+  db: Kysely<DB>;
+  logger: Logger;
 }
 
 export class WhatsAppBot {
-	private db: Kysely<DB>;
-	private logger: Logger;
-	private sock: WASocket | null = null;
-	private handler: WhatsAppMessageHandler | null = null;
-	private recentlySent = new Set<string>();
-	private reconnectAttempt = 0;
-	private watchdogTimer: ReturnType<typeof setInterval> | null = null;
-	private lastMessageAt = 0;
-	private authState: Awaited<ReturnType<typeof createDbAuthState>> | null = null;
-	private composingTimers = new Map<
-		string,
-		{ interval: ReturnType<typeof setInterval>; ttl: ReturnType<typeof setTimeout> }
-	>();
-	private groupMetaCache = new Map<string, { meta: GroupMetadata; expires: number }>();
-
-	constructor(config: WhatsAppBotConfig) {
-		this.db = config.db;
-		this.logger = config.logger;
-	}
-
-	onMessage(handler: WhatsAppMessageHandler): void {
-		this.handler = handler;
-	}
-
-	/**
-	 * Check if WhatsApp creds exist in DB.
-	 * If yes, connect automatically. If no, skip — wait for /whatsapp/pair.
-	 * Returns true if connected, false if waiting for pairing.
-	 */
-	async start(): Promise<boolean> {
-		const row = await this.db.selectFrom("whatsapp_creds").select("id").where("id", "=", "default").executeTakeFirst();
-
-		if (!row) {
-			this.logger.info("No WhatsApp creds in DB — waiting for pairing");
-			return false;
-		}
-
-		await this.createSocket();
-		return true;
-	}
-
-	/**
-	 * Start a fresh pairing session with SSE-friendly callbacks.
-	 * Emits multiple QR codes (each ~20-30s lifetime), a connected event on success,
-	 * or an error event on failure. Returns a promise that resolves when pairing
-	 * completes (connected or failed) — keeps the SSE stream alive until then.
-	 */
-	async startPairing(callbacks: PairingCallbacks): Promise<void> {
-		if (this.sock) {
-			this.sock.end(undefined);
-			this.sock = null;
-		}
-		this.stopWatchdog();
-
-		const authState = await createDbAuthState(this.db, this.logger);
-		this.authState = authState;
-		const version = await getWaVersion();
-
-		this.sock = makeWASocket({
-			version: version as WAVersion,
-			auth: {
-				creds: authState.state.creds,
-				keys: authState.state.keys,
-			},
-			logger: this.logger as unknown as Parameters<typeof makeWASocket>[0]["logger"],
-			printQRInTerminal: false,
-			syncFullHistory: false,
-			markOnlineOnConnect: false,
-		});
-
-		this.sock.ev.on("creds.update", authState.saveCreds);
-
-		return new Promise<void>((resolve) => {
-			this.sock?.ev.on("connection.update", async (update) => {
-				const { connection, lastDisconnect, qr } = update;
-
-				if (qr) {
-					await callbacks.onQr(qr);
-				}
-
-				if (connection === "open") {
-					this.logger.info("WhatsApp connected after pairing");
-					this.reconnectAttempt = 0;
-					this.registerMessageHandler();
-					this.startWatchdog();
-					await callbacks.onConnected(this.phoneNumber ?? "unknown");
-					resolve();
-				}
-
-				if (connection === "close") {
-					const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-					const errorMsg = lastDisconnect?.error?.message ?? "";
-
-					if (statusCode === DisconnectReason.restartRequired) {
-						this.logger.info("WhatsApp restart required after pairing — reconnecting");
-						await this.createSocket();
-						// Wait for the reconnected socket to open before sending the connected event.
-						// Without this, the SSE stream closes before the frontend receives "connected".
-						this.sock?.ev.on("connection.update", async (reconnectUpdate) => {
-							if (reconnectUpdate.connection === "open") {
-								await callbacks.onConnected(this.phoneNumber ?? "unknown");
-								resolve();
-							}
-							if (reconnectUpdate.connection === "close") {
-								await callbacks.onError("Connection failed after pairing");
-								resolve();
-							}
-						});
-						return;
-					}
-
-					if (statusCode === DisconnectReason.loggedOut) {
-						this.logger.warn("WhatsApp logged out during pairing");
-						await authState.clearCreds();
-						this.stopWatchdog();
-						await callbacks.onError("Logged out — please try again");
-						resolve();
-						return;
-					}
-
-					if (errorMsg.includes("QR refs")) {
-						this.logger.info("WhatsApp QR expired");
-						this.sock?.end(undefined);
-						this.sock = null;
-						await callbacks.onError("QR code expired");
-						resolve();
-						return;
-					}
-
-					this.logger.info({ statusCode, error: errorMsg }, "WhatsApp disconnected during pairing");
-					this.sock?.end(undefined);
-					this.sock = null;
-					await callbacks.onError(errorMsg || "Connection closed");
-					resolve();
-				}
-			});
-		});
-	}
-
-	cancelPairing(): void {
-		try {
-			this.sock?.ws?.close();
-		} catch {
-			// Socket may already be closed
-		}
-	}
-
-	async stop(): Promise<void> {
-		this.stopWatchdog();
-		if (this.sock) {
-			this.sock.end(undefined);
-			this.sock = null;
-		}
-	}
-
-	async disconnect(): Promise<void> {
-		this.stopWatchdog();
-		if (this.sock) {
-			this.sock.end(undefined);
-			this.sock = null;
-		}
-		if (this.authState) {
-			await this.authState.clearCreds();
-			this.authState = null;
-		} else {
-			const authState = await createDbAuthState(this.db, this.logger);
-			await authState.clearCreds();
-		}
-	}
-
-	get isConfigured(): boolean {
-		return this.sock !== null;
-	}
-
-	get isConnected(): boolean {
-		return this.sock?.user !== undefined;
-	}
-
-	get phoneNumber(): string | null {
-		if (!this.sock?.user?.id) return null;
-		return `+${this.sock.user.id.split(":")[0].split("@")[0]}`;
-	}
-
-	get socket(): WASocket | null {
-		return this.sock;
-	}
-
-	// --- Sending ---
-
-	async sendText(jid: string, text: string, options?: MiscMessageGenerationOptions): Promise<void> {
-		if (!this.sock) return;
-		const chunks = chunkText(text);
-		for (let i = 0; i < chunks.length; i++) {
-			// Only apply options (e.g. quoted reply) to the first chunk
-			const sent = await this.sock.sendMessage(jid, { text: chunks[i] }, i === 0 ? options : undefined);
-			if (sent?.key?.id) this.trackSentMessage(sent.key.id);
-		}
-	}
-
-	async sendFile(jid: string, filePath: string, mimeType: string, fileName: string): Promise<void> {
-		if (!this.sock) return;
-		const isImage = mimeType.startsWith("image/");
-
-		if (isImage) {
-			const sent = await this.sock.sendMessage(jid, {
-				image: { url: filePath },
-				caption: fileName,
-			});
-			if (sent?.key?.id) this.trackSentMessage(sent.key.id);
-		} else {
-			const sent = await this.sock.sendMessage(jid, {
-				document: { url: filePath },
-				mimetype: mimeType,
-				fileName,
-			});
-			if (sent?.key?.id) this.trackSentMessage(sent.key.id);
-		}
-	}
-
-	startComposing(jid: string): void {
-		this.stopComposing(jid);
-		if (!this.sock) return;
-
-		this.sock.sendPresenceUpdate("composing", jid).catch(() => {});
-
-		const interval = setInterval(() => {
-			this.sock?.sendPresenceUpdate("composing", jid).catch(() => {});
-		}, COMPOSING_INTERVAL_MS);
-
-		const ttl = setTimeout(() => this.stopComposing(jid), COMPOSING_TTL_MS);
-
-		this.composingTimers.set(jid, { interval, ttl });
-	}
-
-	stopComposing(jid: string): void {
-		const timer = this.composingTimers.get(jid);
-		if (!timer) return;
-
-		clearInterval(timer.interval);
-		clearTimeout(timer.ttl);
-		this.composingTimers.delete(jid);
-		this.sock?.sendPresenceUpdate("paused", jid).catch(() => {});
-	}
-
-	// --- Group metadata ---
-
-	async getGroupMetadata(groupJid: string): Promise<GroupMetadata | undefined> {
-		const cached = this.groupMetaCache.get(groupJid);
-		if (cached && cached.expires > Date.now()) return cached.meta;
-
-		try {
-			const meta = await this.sock?.groupMetadata(groupJid);
-			if (meta) {
-				this.groupMetaCache.set(groupJid, { meta, expires: Date.now() + GROUP_META_TTL_MS });
-			}
-			return meta;
-		} catch (err) {
-			this.logger.warn({ err, groupJid }, "Failed to fetch group metadata");
-			return undefined;
-		}
-	}
-
-	async getGroupName(groupJid: string): Promise<string> {
-		const meta = await this.getGroupMetadata(groupJid);
-		return meta?.subject ?? "Unknown Group";
-	}
-
-	// --- Internal ---
-
-	private async createSocket(): Promise<void> {
-		const authState = await createDbAuthState(this.db, this.logger);
-		this.authState = authState;
-		const version = await getWaVersion();
-
-		this.sock = makeWASocket({
-			version: version as WAVersion,
-			auth: {
-				creds: authState.state.creds,
-				keys: authState.state.keys,
-			},
-			logger: this.logger as unknown as Parameters<typeof makeWASocket>[0]["logger"],
-			printQRInTerminal: false,
-			syncFullHistory: false,
-			markOnlineOnConnect: false,
-			cachedGroupMetadata: async (jid) => {
-				const cached = this.groupMetaCache.get(jid);
-				if (cached && cached.expires > Date.now()) return cached.meta;
-				return undefined;
-			},
-		});
-
-		this.sock.ev.on("creds.update", authState.saveCreds);
-		this.registerConnectionHandler(authState);
-		this.registerMessageHandler();
-		this.registerGroupEventHandlers();
-		this.startWatchdog();
-	}
-
-	private registerConnectionHandler(authState: Awaited<ReturnType<typeof createDbAuthState>>): void {
-		this.sock?.ev.on("connection.update", async (update) => {
-			const { connection, lastDisconnect } = update;
-
-			if (connection === "open") {
-				this.logger.info("WhatsApp connected");
-				this.reconnectAttempt = 0;
-			}
-
-			if (connection === "close") {
-				const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-
-				if (statusCode === DisconnectReason.loggedOut) {
-					this.logger.warn("WhatsApp logged out — clearing credentials");
-					await authState.clearCreds();
-					this.stopWatchdog();
-					return;
-				}
-
-				this.reconnectAttempt++;
-				const delay = Math.min(RECONNECT_BASE_MS * RECONNECT_FACTOR ** (this.reconnectAttempt - 1), RECONNECT_MAX_MS);
-				const jitter = delay * RECONNECT_JITTER * Math.random();
-				this.logger.info(
-					{ attempt: this.reconnectAttempt, delayMs: Math.round(delay + jitter) },
-					"WhatsApp reconnecting",
-				);
-				setTimeout(() => this.createSocket(), delay + jitter);
-			}
-		});
-	}
-
-	private registerMessageHandler(): void {
-		this.sock?.ev.on("messages.upsert", async ({ messages, type }) => {
-			if (type !== "notify") return;
-
-			for (const msg of messages) {
-				if (!msg.message) continue;
-				if (msg.key.fromMe) continue;
-
-				const jid = msg.key.remoteJid;
-				if (!jid) continue;
-
-				const isStandardDm = jid.endsWith("@s.whatsapp.net");
-				const isLidDm = jid.endsWith("@lid");
-				const isGroup = jid.endsWith("@g.us");
-				if (!isStandardDm && !isLidDm && !isGroup) continue;
-
-				if (msg.key.id && this.recentlySent.has(msg.key.id)) continue;
-
-				const messageType = getContentType(msg.message);
-				const text = extractText(msg);
-				const hasMedia = hasMediaContent(messageType);
-
-				if (!text && !hasMedia) continue;
-
-				if (isGroup) {
-					await this.handleGroupMessage(msg, jid, text, messageType, hasMedia);
-				} else {
-					await this.handleDmMessage(msg, jid, isStandardDm, text, messageType, hasMedia);
-				}
-			}
-		});
-	}
-
-	private async handleDmMessage(
-		msg: proto.IWebMessageInfo,
-		jid: string,
-		isStandardDm: boolean,
-		text: string | null,
-		messageType: string | undefined,
-		hasMedia: boolean,
-	): Promise<void> {
-		let phoneNumber: string | null = null;
-
-		if (isStandardDm) {
-			phoneNumber = jidToPhoneNumber(jid);
-		} else {
-			phoneNumber = await this.resolveLidToPhone(jid);
-			if (!phoneNumber) {
-				this.logger.warn({ lid: jid }, "Could not resolve LID to phone number — dropping message");
-				return;
-			}
-		}
-
-		if (this.handler) {
-			this.lastMessageAt = Date.now();
-			await this.handler({
-				type: "dm",
-				text: text ?? "",
-				phoneNumber,
-				jid,
-				messageId: msg.key?.id ?? "",
-				pushName: msg.pushName ?? "Unknown",
-				rawMessage: msg,
-				mediaType: hasMedia ? (messageType ?? undefined) : undefined,
-			});
-		}
-	}
-
-	private async handleGroupMessage(
-		msg: proto.IWebMessageInfo,
-		groupJid: string,
-		text: string | null,
-		messageType: string | undefined,
-		hasMedia: boolean,
-	): Promise<void> {
-		const senderJid = msg.key?.participant;
-		if (!senderJid) return;
-
-		if (!msg.message) return;
-		const contextInfo = extractContextInfo(msg.message);
-		const isMentioned = this.isBotMentioned(contextInfo);
-
-		// Strip bot mention text from the message when explicitly mentioned
-		let cleanText = text;
-		if (cleanText && isMentioned && contextInfo?.mentionedJid?.length) {
-			cleanText = stripBotMention(cleanText, this.sock?.user?.name);
-		}
-
-		if (this.handler) {
-			this.lastMessageAt = Date.now();
-			await this.handler({
-				type: "group",
-				text: cleanText ?? "",
-				jid: groupJid,
-				messageId: msg.key?.id ?? "",
-				pushName: msg.pushName ?? "Unknown",
-				rawMessage: msg,
-				mediaType: hasMedia ? (messageType ?? undefined) : undefined,
-				isMentioned,
-				senderJid,
-			});
-		}
-	}
-
-	/**
-	 * Check if the bot is mentioned in a message — either explicitly via @mention
-	 * in mentionedJid, or implicitly by replying to a bot message.
-	 */
-	private isBotMentioned(contextInfo: proto.IContextInfo | undefined): boolean {
-		const botId = this.sock?.user?.id;
-		if (!botId) return false;
-
-		const botLid = this.sock?.user?.lid;
-
-		// Explicit @mention — check mentionedJid array
-		const mentionedJids = contextInfo?.mentionedJid;
-		if (mentionedJids?.length) {
-			const hasBotMention = mentionedJids.some(
-				(mentionJid) => areJidsSameUser(mentionJid, botId) || (botLid && areJidsSameUser(mentionJid, botLid)),
-			);
-			if (hasBotMention) return true;
-		}
-
-		// Implicit mention — reply to a bot message
-		const quotedParticipant = contextInfo?.participant;
-		if (quotedParticipant) {
-			if (areJidsSameUser(quotedParticipant, botId)) return true;
-			if (botLid && areJidsSameUser(quotedParticipant, botLid)) return true;
-		}
-
-		return false;
-	}
-
-	/**
-	 * Refresh group metadata cache on group changes so cachedGroupMetadata
-	 * stays fresh and Baileys doesn't re-fetch on every sendMessage.
-	 */
-	private registerGroupEventHandlers(): void {
-		this.sock?.ev.on("groups.update", async (updates) => {
-			for (const update of updates) {
-				if (!update.id) continue;
-				try {
-					const meta = await this.sock?.groupMetadata(update.id);
-					if (meta) {
-						this.groupMetaCache.set(update.id, { meta, expires: Date.now() + GROUP_META_TTL_MS });
-					}
-				} catch {
-					// Non-critical — cache will refresh on next access
-				}
-			}
-		});
-
-		this.sock?.ev.on("group-participants.update", async (event) => {
-			try {
-				const meta = await this.sock?.groupMetadata(event.id);
-				if (meta) {
-					this.groupMetaCache.set(event.id, { meta, expires: Date.now() + GROUP_META_TTL_MS });
-				}
-			} catch {
-				// Non-critical — cache will refresh on next access
-			}
-		});
-	}
-
-	/**
-	 * Resolve a LID JID to an E.164 phone number using Baileys' in-memory mapping.
-	 * Returns null if the mapping is unavailable.
-	 */
-	private async resolveLidToPhone(lidJid: string): Promise<string | null> {
-		try {
-			const pnJid = await this.sock?.signalRepository?.lidMapping?.getPNForLID(lidJid);
-			if (pnJid) {
-				return jidToPhoneNumber(pnJid);
-			}
-		} catch (err) {
-			this.logger.debug({ lid: lidJid, err }, "LID mapping lookup failed");
-		}
-		return null;
-	}
-
-	private trackSentMessage(messageId: string): void {
-		this.recentlySent.add(messageId);
-		setTimeout(() => this.recentlySent.delete(messageId), ECHO_TTL_MS);
-	}
-
-	private startWatchdog(): void {
-		this.stopWatchdog();
-		this.lastMessageAt = Date.now();
-		this.watchdogTimer = setInterval(() => {
-			if (Date.now() - this.lastMessageAt > WATCHDOG_STALE_MS) {
-				this.logger.warn("WhatsApp watchdog — no messages in 30 minutes, forcing reconnect");
-				if (this.sock) {
-					this.sock.end(undefined);
-				}
-			}
-		}, WATCHDOG_INTERVAL_MS);
-	}
-
-	private stopWatchdog(): void {
-		if (this.watchdogTimer) {
-			clearInterval(this.watchdogTimer);
-			this.watchdogTimer = null;
-		}
-	}
+  private db: Kysely<DB>;
+  private logger: Logger;
+  private sock: WASocket | null = null;
+  private handler: WhatsAppMessageHandler | null = null;
+  private recentlySent = new Set<string>();
+  private reconnectAttempt = 0;
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private lastMessageAt = 0;
+  private authState: Awaited<ReturnType<typeof createDbAuthState>> | null = null;
+  private composingTimers = new Map<
+    string,
+    { interval: ReturnType<typeof setInterval>; ttl: ReturnType<typeof setTimeout> }
+  >();
+  private groupMetaCache = new Map<string, { meta: GroupMetadata; expires: number }>();
+
+  constructor(config: WhatsAppBotConfig) {
+    this.db = config.db;
+    this.logger = config.logger;
+  }
+
+  onMessage(handler: WhatsAppMessageHandler): void {
+    this.handler = handler;
+  }
+
+  /**
+   * Check if WhatsApp creds exist in DB.
+   * If yes, connect automatically. If no, skip — wait for /whatsapp/pair.
+   * Returns true if connected, false if waiting for pairing.
+   */
+  async start(): Promise<boolean> {
+    const row = await this.db.selectFrom("whatsapp_creds").select("id").where("id", "=", "default").executeTakeFirst();
+
+    if (!row) {
+      this.logger.info("No WhatsApp creds in DB — waiting for pairing");
+      return false;
+    }
+
+    await this.createSocket();
+    return true;
+  }
+
+  /**
+   * Start a fresh pairing session with SSE-friendly callbacks.
+   * Emits multiple QR codes (each ~20-30s lifetime), a connected event on success,
+   * or an error event on failure. Returns a promise that resolves when pairing
+   * completes (connected or failed) — keeps the SSE stream alive until then.
+   */
+  async startPairing(callbacks: PairingCallbacks): Promise<void> {
+    if (this.sock) {
+      this.sock.end(undefined);
+      this.sock = null;
+    }
+    this.stopWatchdog();
+
+    const authState = await createDbAuthState(this.db, this.logger);
+    this.authState = authState;
+    const version = await getWaVersion();
+
+    this.sock = makeWASocket({
+      version: version as WAVersion,
+      auth: {
+        creds: authState.state.creds,
+        keys: authState.state.keys,
+      },
+      logger: this.logger as unknown as Parameters<typeof makeWASocket>[0]["logger"],
+      printQRInTerminal: false,
+      syncFullHistory: false,
+      markOnlineOnConnect: false,
+    });
+
+    this.sock.ev.on("creds.update", authState.saveCreds);
+
+    return new Promise<void>((resolve) => {
+      this.sock?.ev.on("connection.update", async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+          await callbacks.onQr(qr);
+        }
+
+        if (connection === "open") {
+          this.logger.info("WhatsApp connected after pairing");
+          this.reconnectAttempt = 0;
+          this.registerMessageHandler();
+          this.startWatchdog();
+          await callbacks.onConnected(this.phoneNumber ?? "unknown");
+          resolve();
+        }
+
+        if (connection === "close") {
+          const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+          const errorMsg = lastDisconnect?.error?.message ?? "";
+
+          if (statusCode === DisconnectReason.restartRequired) {
+            this.logger.info("WhatsApp restart required after pairing — reconnecting");
+            await this.createSocket();
+            // Wait for the reconnected socket to open before sending the connected event.
+            // Without this, the SSE stream closes before the frontend receives "connected".
+            this.sock?.ev.on("connection.update", async (reconnectUpdate) => {
+              if (reconnectUpdate.connection === "open") {
+                await callbacks.onConnected(this.phoneNumber ?? "unknown");
+                resolve();
+              }
+              if (reconnectUpdate.connection === "close") {
+                await callbacks.onError("Connection failed after pairing");
+                resolve();
+              }
+            });
+            return;
+          }
+
+          if (statusCode === DisconnectReason.loggedOut) {
+            this.logger.warn("WhatsApp logged out during pairing");
+            await authState.clearCreds();
+            this.stopWatchdog();
+            await callbacks.onError("Logged out — please try again");
+            resolve();
+            return;
+          }
+
+          if (errorMsg.includes("QR refs")) {
+            this.logger.info("WhatsApp QR expired");
+            this.sock?.end(undefined);
+            this.sock = null;
+            await callbacks.onError("QR code expired");
+            resolve();
+            return;
+          }
+
+          this.logger.info({ statusCode, error: errorMsg }, "WhatsApp disconnected during pairing");
+          this.sock?.end(undefined);
+          this.sock = null;
+          await callbacks.onError(errorMsg || "Connection closed");
+          resolve();
+        }
+      });
+    });
+  }
+
+  cancelPairing(): void {
+    try {
+      this.sock?.ws?.close();
+    } catch {
+      // Socket may already be closed
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.stopWatchdog();
+    if (this.sock) {
+      this.sock.end(undefined);
+      this.sock = null;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    this.stopWatchdog();
+    if (this.sock) {
+      this.sock.end(undefined);
+      this.sock = null;
+    }
+    if (this.authState) {
+      await this.authState.clearCreds();
+      this.authState = null;
+    } else {
+      const authState = await createDbAuthState(this.db, this.logger);
+      await authState.clearCreds();
+    }
+  }
+
+  get isConfigured(): boolean {
+    return this.sock !== null;
+  }
+
+  get isConnected(): boolean {
+    return this.sock?.user !== undefined;
+  }
+
+  get phoneNumber(): string | null {
+    if (!this.sock?.user?.id) return null;
+    return `+${this.sock.user.id.split(":")[0].split("@")[0]}`;
+  }
+
+  get socket(): WASocket | null {
+    return this.sock;
+  }
+
+  // --- Sending ---
+
+  async sendText(jid: string, text: string, options?: MiscMessageGenerationOptions): Promise<void> {
+    if (!this.sock) return;
+    const chunks = chunkText(text);
+    for (let i = 0; i < chunks.length; i++) {
+      // Only apply options (e.g. quoted reply) to the first chunk
+      const sent = await this.sock.sendMessage(jid, { text: chunks[i] }, i === 0 ? options : undefined);
+      if (sent?.key?.id) this.trackSentMessage(sent.key.id);
+    }
+  }
+
+  async sendFile(jid: string, filePath: string, mimeType: string, fileName: string): Promise<void> {
+    if (!this.sock) return;
+    const isImage = mimeType.startsWith("image/");
+
+    if (isImage) {
+      const sent = await this.sock.sendMessage(jid, {
+        image: { url: filePath },
+        caption: fileName,
+      });
+      if (sent?.key?.id) this.trackSentMessage(sent.key.id);
+    } else {
+      const sent = await this.sock.sendMessage(jid, {
+        document: { url: filePath },
+        mimetype: mimeType,
+        fileName,
+      });
+      if (sent?.key?.id) this.trackSentMessage(sent.key.id);
+    }
+  }
+
+  startComposing(jid: string): void {
+    this.stopComposing(jid);
+    if (!this.sock) return;
+
+    this.sock.sendPresenceUpdate("composing", jid).catch(() => {});
+
+    const interval = setInterval(() => {
+      this.sock?.sendPresenceUpdate("composing", jid).catch(() => {});
+    }, COMPOSING_INTERVAL_MS);
+
+    const ttl = setTimeout(() => this.stopComposing(jid), COMPOSING_TTL_MS);
+
+    this.composingTimers.set(jid, { interval, ttl });
+  }
+
+  stopComposing(jid: string): void {
+    const timer = this.composingTimers.get(jid);
+    if (!timer) return;
+
+    clearInterval(timer.interval);
+    clearTimeout(timer.ttl);
+    this.composingTimers.delete(jid);
+    this.sock?.sendPresenceUpdate("paused", jid).catch(() => {});
+  }
+
+  // --- Group metadata ---
+
+  async getGroupMetadata(groupJid: string): Promise<GroupMetadata | undefined> {
+    const cached = this.groupMetaCache.get(groupJid);
+    if (cached && cached.expires > Date.now()) return cached.meta;
+
+    try {
+      const meta = await this.sock?.groupMetadata(groupJid);
+      if (meta) {
+        this.groupMetaCache.set(groupJid, { meta, expires: Date.now() + GROUP_META_TTL_MS });
+      }
+      return meta;
+    } catch (err) {
+      this.logger.warn({ err, groupJid }, "Failed to fetch group metadata");
+      return undefined;
+    }
+  }
+
+  async getGroupName(groupJid: string): Promise<string> {
+    const meta = await this.getGroupMetadata(groupJid);
+    return meta?.subject ?? "Unknown Group";
+  }
+
+  // --- Internal ---
+
+  private async createSocket(): Promise<void> {
+    const authState = await createDbAuthState(this.db, this.logger);
+    this.authState = authState;
+    const version = await getWaVersion();
+
+    this.sock = makeWASocket({
+      version: version as WAVersion,
+      auth: {
+        creds: authState.state.creds,
+        keys: authState.state.keys,
+      },
+      logger: this.logger as unknown as Parameters<typeof makeWASocket>[0]["logger"],
+      printQRInTerminal: false,
+      syncFullHistory: false,
+      markOnlineOnConnect: false,
+      cachedGroupMetadata: async (jid) => {
+        const cached = this.groupMetaCache.get(jid);
+        if (cached && cached.expires > Date.now()) return cached.meta;
+        return undefined;
+      },
+    });
+
+    this.sock.ev.on("creds.update", authState.saveCreds);
+    this.registerConnectionHandler(authState);
+    this.registerMessageHandler();
+    this.registerGroupEventHandlers();
+    this.startWatchdog();
+  }
+
+  private registerConnectionHandler(authState: Awaited<ReturnType<typeof createDbAuthState>>): void {
+    this.sock?.ev.on("connection.update", async (update) => {
+      const { connection, lastDisconnect } = update;
+
+      if (connection === "open") {
+        this.logger.info("WhatsApp connected");
+        this.reconnectAttempt = 0;
+      }
+
+      if (connection === "close") {
+        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+
+        if (statusCode === DisconnectReason.loggedOut) {
+          this.logger.warn("WhatsApp logged out — clearing credentials");
+          await authState.clearCreds();
+          this.stopWatchdog();
+          return;
+        }
+
+        this.reconnectAttempt++;
+        const delay = Math.min(RECONNECT_BASE_MS * RECONNECT_FACTOR ** (this.reconnectAttempt - 1), RECONNECT_MAX_MS);
+        const jitter = delay * RECONNECT_JITTER * Math.random();
+        this.logger.info(
+          { attempt: this.reconnectAttempt, delayMs: Math.round(delay + jitter) },
+          "WhatsApp reconnecting",
+        );
+        setTimeout(() => this.createSocket(), delay + jitter);
+      }
+    });
+  }
+
+  private registerMessageHandler(): void {
+    this.sock?.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") return;
+
+      for (const msg of messages) {
+        if (!msg.message) continue;
+        if (msg.key.fromMe) continue;
+
+        const jid = msg.key.remoteJid;
+        if (!jid) continue;
+
+        const isStandardDm = jid.endsWith("@s.whatsapp.net");
+        const isLidDm = jid.endsWith("@lid");
+        const isGroup = jid.endsWith("@g.us");
+        if (!isStandardDm && !isLidDm && !isGroup) continue;
+
+        if (msg.key.id && this.recentlySent.has(msg.key.id)) continue;
+
+        const messageType = getContentType(msg.message);
+        const text = extractText(msg);
+        const hasMedia = hasMediaContent(messageType);
+
+        if (!text && !hasMedia) continue;
+
+        if (isGroup) {
+          await this.handleGroupMessage(msg, jid, text, messageType, hasMedia);
+        } else {
+          await this.handleDmMessage(msg, jid, isStandardDm, text, messageType, hasMedia);
+        }
+      }
+    });
+  }
+
+  private async handleDmMessage(
+    msg: proto.IWebMessageInfo,
+    jid: string,
+    isStandardDm: boolean,
+    text: string | null,
+    messageType: string | undefined,
+    hasMedia: boolean,
+  ): Promise<void> {
+    let phoneNumber: string | null = null;
+
+    if (isStandardDm) {
+      phoneNumber = jidToPhoneNumber(jid);
+    } else {
+      phoneNumber = await this.resolveLidToPhone(jid);
+      if (!phoneNumber) {
+        this.logger.warn({ lid: jid }, "Could not resolve LID to phone number — dropping message");
+        return;
+      }
+    }
+
+    if (this.handler) {
+      this.lastMessageAt = Date.now();
+      await this.handler({
+        type: "dm",
+        text: text ?? "",
+        phoneNumber,
+        jid,
+        messageId: msg.key?.id ?? "",
+        pushName: msg.pushName ?? "Unknown",
+        rawMessage: msg,
+        mediaType: hasMedia ? (messageType ?? undefined) : undefined,
+      });
+    }
+  }
+
+  private async handleGroupMessage(
+    msg: proto.IWebMessageInfo,
+    groupJid: string,
+    text: string | null,
+    messageType: string | undefined,
+    hasMedia: boolean,
+  ): Promise<void> {
+    const senderJid = msg.key?.participant;
+    if (!senderJid) return;
+
+    if (!msg.message) return;
+    const contextInfo = extractContextInfo(msg.message);
+    const isMentioned = this.isBotMentioned(contextInfo);
+
+    // Strip bot mention text from the message when explicitly mentioned
+    let cleanText = text;
+    if (cleanText && isMentioned && contextInfo?.mentionedJid?.length) {
+      cleanText = stripBotMention(cleanText, this.sock?.user?.name);
+    }
+
+    if (this.handler) {
+      this.lastMessageAt = Date.now();
+      await this.handler({
+        type: "group",
+        text: cleanText ?? "",
+        jid: groupJid,
+        messageId: msg.key?.id ?? "",
+        pushName: msg.pushName ?? "Unknown",
+        rawMessage: msg,
+        mediaType: hasMedia ? (messageType ?? undefined) : undefined,
+        isMentioned,
+        senderJid,
+      });
+    }
+  }
+
+  /**
+   * Check if the bot is mentioned in a message — either explicitly via @mention
+   * in mentionedJid, or implicitly by replying to a bot message.
+   */
+  private isBotMentioned(contextInfo: proto.IContextInfo | undefined): boolean {
+    const botId = this.sock?.user?.id;
+    if (!botId) return false;
+
+    const botLid = this.sock?.user?.lid;
+
+    // Explicit @mention — check mentionedJid array
+    const mentionedJids = contextInfo?.mentionedJid;
+    if (mentionedJids?.length) {
+      const hasBotMention = mentionedJids.some(
+        (mentionJid) => areJidsSameUser(mentionJid, botId) || (botLid && areJidsSameUser(mentionJid, botLid)),
+      );
+      if (hasBotMention) return true;
+    }
+
+    // Implicit mention — reply to a bot message
+    const quotedParticipant = contextInfo?.participant;
+    if (quotedParticipant) {
+      if (areJidsSameUser(quotedParticipant, botId)) return true;
+      if (botLid && areJidsSameUser(quotedParticipant, botLid)) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Refresh group metadata cache on group changes so cachedGroupMetadata
+   * stays fresh and Baileys doesn't re-fetch on every sendMessage.
+   */
+  private registerGroupEventHandlers(): void {
+    this.sock?.ev.on("groups.update", async (updates) => {
+      for (const update of updates) {
+        if (!update.id) continue;
+        try {
+          const meta = await this.sock?.groupMetadata(update.id);
+          if (meta) {
+            this.groupMetaCache.set(update.id, { meta, expires: Date.now() + GROUP_META_TTL_MS });
+          }
+        } catch {
+          // Non-critical — cache will refresh on next access
+        }
+      }
+    });
+
+    this.sock?.ev.on("group-participants.update", async (event) => {
+      try {
+        const meta = await this.sock?.groupMetadata(event.id);
+        if (meta) {
+          this.groupMetaCache.set(event.id, { meta, expires: Date.now() + GROUP_META_TTL_MS });
+        }
+      } catch {
+        // Non-critical — cache will refresh on next access
+      }
+    });
+  }
+
+  /**
+   * Resolve a LID JID to an E.164 phone number using Baileys' in-memory mapping.
+   * Returns null if the mapping is unavailable.
+   */
+  private async resolveLidToPhone(lidJid: string): Promise<string | null> {
+    try {
+      const pnJid = await this.sock?.signalRepository?.lidMapping?.getPNForLID(lidJid);
+      if (pnJid) {
+        return jidToPhoneNumber(pnJid);
+      }
+    } catch (err) {
+      this.logger.debug({ lid: lidJid, err }, "LID mapping lookup failed");
+    }
+    return null;
+  }
+
+  private trackSentMessage(messageId: string): void {
+    this.recentlySent.add(messageId);
+    setTimeout(() => this.recentlySent.delete(messageId), ECHO_TTL_MS);
+  }
+
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.lastMessageAt = Date.now();
+    this.watchdogTimer = setInterval(() => {
+      if (Date.now() - this.lastMessageAt > WATCHDOG_STALE_MS) {
+        this.logger.warn("WhatsApp watchdog — no messages in 30 minutes, forcing reconnect");
+        if (this.sock) {
+          this.sock.end(undefined);
+        }
+      }
+    }, WATCHDOG_INTERVAL_MS);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+  }
 }
 
 // --- Pure utility functions (exported for testing) ---
 
 export function extractText(msg: proto.IWebMessageInfo): string | null {
-	if (!msg.message) return null;
+  if (!msg.message) return null;
 
-	if (msg.message.conversation) return msg.message.conversation;
-	if (msg.message.extendedTextMessage?.text) return msg.message.extendedTextMessage.text;
-	if (msg.message.imageMessage?.caption) return msg.message.imageMessage.caption;
-	if (msg.message.videoMessage?.caption) return msg.message.videoMessage.caption;
-	if (msg.message.documentMessage?.caption) return msg.message.documentMessage.caption;
+  if (msg.message.conversation) return msg.message.conversation;
+  if (msg.message.extendedTextMessage?.text) return msg.message.extendedTextMessage.text;
+  if (msg.message.imageMessage?.caption) return msg.message.imageMessage.caption;
+  if (msg.message.videoMessage?.caption) return msg.message.videoMessage.caption;
+  if (msg.message.documentMessage?.caption) return msg.message.documentMessage.caption;
 
-	return null;
+  return null;
 }
 
 export function hasMediaContent(messageType: string | undefined): boolean {
-	if (!messageType) return false;
-	return ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"].includes(messageType);
+  if (!messageType) return false;
+  return ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"].includes(messageType);
 }
 
 export function jidToPhoneNumber(jid: string): string {
-	const raw = jid.replace("@s.whatsapp.net", "").replace("@lid", "");
-	const number = raw.includes(":") ? raw.split(":")[0] : raw;
-	return `+${number}`;
+  const raw = jid.replace("@s.whatsapp.net", "").replace("@lid", "");
+  const number = raw.includes(":") ? raw.split(":")[0] : raw;
+  return `+${number}`;
 }
 
 /**
@@ -651,15 +651,15 @@ export function jidToPhoneNumber(jid: string): string {
  * can live on extendedTextMessage, imageMessage, videoMessage, etc.
  */
 export function extractContextInfo(message: proto.IMessage): proto.IContextInfo | undefined {
-	return (
-		message.extendedTextMessage?.contextInfo ??
-		message.imageMessage?.contextInfo ??
-		message.videoMessage?.contextInfo ??
-		message.audioMessage?.contextInfo ??
-		message.documentMessage?.contextInfo ??
-		message.stickerMessage?.contextInfo ??
-		undefined
-	);
+  return (
+    message.extendedTextMessage?.contextInfo ??
+    message.imageMessage?.contextInfo ??
+    message.videoMessage?.contextInfo ??
+    message.audioMessage?.contextInfo ??
+    message.documentMessage?.contextInfo ??
+    message.stickerMessage?.contextInfo ??
+    undefined
+  );
 }
 
 /**
@@ -668,16 +668,16 @@ export function extractContextInfo(message: proto.IMessage): proto.IContextInfo 
  * like a bot mention so the agent sees a clean message.
  */
 export function stripBotMention(text: string, botName?: string | null): string {
-	if (botName) {
-		// Try exact match first: @BotName (possibly with unicode zero-width chars)
-		const escaped = botName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		const namePattern = new RegExp(`@[\\u200B-\\u200F\\uFEFF]*${escaped}\\b`, "i");
-		const stripped = text.replace(namePattern, "").trim();
-		if (stripped !== text) return stripped.replace(/\s{2,}/g, " ");
-	}
-	// Fallback: strip the first @mention token (WhatsApp inserts mention at the position)
-	return text
-		.replace(/@[\u200B-\u200F\uFEFF]*\S+/, "")
-		.trim()
-		.replace(/\s{2,}/g, " ");
+  if (botName) {
+    // Try exact match first: @BotName (possibly with unicode zero-width chars)
+    const escaped = botName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const namePattern = new RegExp(`@[\\u200B-\\u200F\\uFEFF]*${escaped}\\b`, "i");
+    const stripped = text.replace(namePattern, "").trim();
+    if (stripped !== text) return stripped.replace(/\s{2,}/g, " ");
+  }
+  // Fallback: strip the first @mention token (WhatsApp inserts mention at the position)
+  return text
+    .replace(/@[\u200B-\u200F\uFEFF]*\S+/, "")
+    .trim()
+    .replace(/\s{2,}/g, " ");
 }

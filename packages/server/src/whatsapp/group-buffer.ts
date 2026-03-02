@@ -8,36 +8,36 @@
  */
 
 export interface GroupBufferedMessage {
-	senderName: string;
-	text: string;
-	timestamp: number;
+  senderName: string;
+  text: string;
+  timestamp: number;
 }
 
 export class GroupBuffer {
-	private buffers = new Map<string, GroupBufferedMessage[]>();
-	private maxPerGroup: number;
+  private buffers = new Map<string, GroupBufferedMessage[]>();
+  private maxPerGroup: number;
 
-	constructor(maxPerGroup = 50) {
-		this.maxPerGroup = maxPerGroup;
-	}
+  constructor(maxPerGroup = 50) {
+    this.maxPerGroup = maxPerGroup;
+  }
 
-	append(groupJid: string, message: GroupBufferedMessage): void {
-		let buf = this.buffers.get(groupJid);
-		if (!buf) {
-			buf = [];
-			this.buffers.set(groupJid, buf);
-		}
-		buf.push(message);
-		if (buf.length > this.maxPerGroup) {
-			buf.splice(0, buf.length - this.maxPerGroup);
-		}
-	}
+  append(groupJid: string, message: GroupBufferedMessage): void {
+    let buf = this.buffers.get(groupJid);
+    if (!buf) {
+      buf = [];
+      this.buffers.set(groupJid, buf);
+    }
+    buf.push(message);
+    if (buf.length > this.maxPerGroup) {
+      buf.splice(0, buf.length - this.maxPerGroup);
+    }
+  }
 
-	drain(groupJid: string): GroupBufferedMessage[] {
-		const buf = this.buffers.get(groupJid);
-		if (!buf) return [];
-		const messages = [...buf];
-		buf.length = 0;
-		return messages;
-	}
+  drain(groupJid: string): GroupBufferedMessage[] {
+    const buf = this.buffers.get(groupJid);
+    if (!buf) return [];
+    const messages = [...buf];
+    buf.length = 0;
+    return messages;
+  }
 }

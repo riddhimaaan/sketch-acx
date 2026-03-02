@@ -23,59 +23,59 @@ import type { SlackBot } from "./slack/bot";
 import type { WhatsAppBot } from "./whatsapp/bot";
 
 interface AppDeps {
-	whatsapp?: WhatsAppBot;
-	getSlack?: () => SlackBot | null;
-	onSlackTokensUpdated?: (tokens?: { botToken: string; appToken: string }) => Promise<void>;
-	onSlackDisconnect?: () => Promise<void>;
-	onLlmSettingsUpdated?: () => Promise<void>;
+  whatsapp?: WhatsAppBot;
+  getSlack?: () => SlackBot | null;
+  onSlackTokensUpdated?: (tokens?: { botToken: string; appToken: string }) => Promise<void>;
+  onSlackDisconnect?: () => Promise<void>;
+  onLlmSettingsUpdated?: () => Promise<void>;
 }
 
 export function createApp(db: Kysely<DB>, _config: Config, deps?: AppDeps) {
-	const app = new Hono();
-	const settings = createSettingsRepository(db);
-	const users = createUserRepository(db);
+  const app = new Hono();
+  const settings = createSettingsRepository(db);
+  const users = createUserRepository(db);
 
-	// Auth middleware on all /api/* routes (with setup mode + auth checks)
-	app.use("/api/*", createAuthMiddleware(settings));
+  // Auth middleware on all /api/* routes (with setup mode + auth checks)
+  app.use("/api/*", createAuthMiddleware(settings));
 
-	// API routes
-	app.route("/api/health", healthRoutes(db));
-	app.route("/api/auth", authRoutes(settings));
-	app.route(
-		"/api/setup",
-		setupRoutes(settings, {
-			onSlackTokensUpdated: deps?.onSlackTokensUpdated,
-			onLlmSettingsUpdated: deps?.onLlmSettingsUpdated,
-		}),
-	);
-	app.route("/api/settings", settingsRoutes(settings));
-	app.route("/api/users", userRoutes(users));
-	app.route(
-		"/api/channels",
-		channelRoutes({ whatsapp: deps?.whatsapp, getSlack: deps?.getSlack, onSlackDisconnect: deps?.onSlackDisconnect }),
-	);
+  // API routes
+  app.route("/api/health", healthRoutes(db));
+  app.route("/api/auth", authRoutes(settings));
+  app.route(
+    "/api/setup",
+    setupRoutes(settings, {
+      onSlackTokensUpdated: deps?.onSlackTokensUpdated,
+      onLlmSettingsUpdated: deps?.onLlmSettingsUpdated,
+    }),
+  );
+  app.route("/api/settings", settingsRoutes(settings));
+  app.route("/api/users", userRoutes(users));
+  app.route(
+    "/api/channels",
+    channelRoutes({ whatsapp: deps?.whatsapp, getSlack: deps?.getSlack, onSlackDisconnect: deps?.onSlackDisconnect }),
+  );
 
-	if (deps?.whatsapp) {
-		app.route("/api/channels/whatsapp", whatsappRoutes(deps.whatsapp));
-	}
+  if (deps?.whatsapp) {
+    app.route("/api/channels/whatsapp", whatsappRoutes(deps.whatsapp));
+  }
 
-	// Static file serving for the SPA (production only — dev uses Vite dev server)
-	// Resolve path relative to this file's location (works with both tsx and tsdown bundle)
-	const webDistDir = resolve(import.meta.dirname, "../../web/dist");
+  // Static file serving for the SPA (production only — dev uses Vite dev server)
+  // Resolve path relative to this file's location (works with both tsx and tsdown bundle)
+  const webDistDir = resolve(import.meta.dirname, "../../web/dist");
 
-	if (existsSync(webDistDir)) {
-		// Serve hashed assets (JS, CSS, images)
-		app.use("/assets/*", serveStatic({ root: webDistDir }));
+  if (existsSync(webDistDir)) {
+    // Serve hashed assets (JS, CSS, images)
+    app.use("/assets/*", serveStatic({ root: webDistDir }));
 
-		// SPA catch-all: any non-API route returns index.html for client-side routing
-		const indexHtml = readFileSync(join(webDistDir, "index.html"), "utf-8");
-		app.get("*", (c) => {
-			if (c.req.path.startsWith("/api/")) {
-				return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-			}
-			return c.html(indexHtml);
-		});
-	}
+    // SPA catch-all: any non-API route returns index.html for client-side routing
+    const indexHtml = readFileSync(join(webDistDir, "index.html"), "utf-8");
+    app.get("*", (c) => {
+      if (c.req.path.startsWith("/api/")) {
+        return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+      }
+      return c.html(indexHtml);
+    });
+  }
 
-	return app;
+  return app;
 }

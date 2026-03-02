@@ -7,18 +7,18 @@
  */
 
 export interface CachedUser {
-	name: string;
-	realName: string;
+  name: string;
+  realName: string;
 }
 
 export class UserCache {
-	private cache = new Map<string, CachedUser>();
+  private cache = new Map<string, CachedUser>();
 
-	async resolve(userId: string, fetcher: (id: string) => Promise<CachedUser>): Promise<CachedUser> {
-		const cached = this.cache.get(userId);
-		if (cached) return cached;
-		const user = await fetcher(userId);
-		this.cache.set(userId, user);
-		return user;
-	}
+  async resolve(userId: string, fetcher: (id: string) => Promise<CachedUser>): Promise<CachedUser> {
+    const cached = this.cache.get(userId);
+    if (cached) return cached;
+    const user = await fetcher(userId);
+    this.cache.set(userId, user);
+    return user;
+  }
 }

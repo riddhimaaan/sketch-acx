@@ -24,72 +24,72 @@ const ONBOARDING_PATHS_PREFIX = "/api/channels/whatsapp";
 type SettingsRepo = ReturnType<typeof createSettingsRepository>;
 
 export function createAuthMiddleware(settings: SettingsRepo) {
-	let cachedSecret: string | null = null;
+  let cachedSecret: string | null = null;
 
-	return async (c: Context, next: Next) => {
-		const path = c.req.path;
-		const isSetupPath = path.startsWith(SETUP_PATHS_PREFIX);
-		const isPublicPath = PUBLIC_PATHS.has(path);
-		const isPublicSetupPath = PUBLIC_SETUP_PATHS.has(path);
+  return async (c: Context, next: Next) => {
+    const path = c.req.path;
+    const isSetupPath = path.startsWith(SETUP_PATHS_PREFIX);
+    const isPublicPath = PUBLIC_PATHS.has(path);
+    const isPublicSetupPath = PUBLIC_SETUP_PATHS.has(path);
 
-		// Setup bootstrap paths are always accessible.
-		if (isPublicSetupPath) {
-			return next();
-		}
+    // Setup bootstrap paths are always accessible.
+    if (isPublicSetupPath) {
+      return next();
+    }
 
-		let setupComplete = false;
-		let hasAdmin = false;
-		let jwtSecret: string | null = null;
-		try {
-			const row = await settings.get();
-			setupComplete = Boolean(row?.onboarding_completed_at);
-			hasAdmin = Boolean(row?.admin_email);
-			jwtSecret = row?.jwt_secret ?? null;
-			if (jwtSecret) cachedSecret = jwtSecret;
-		} catch {
-			// DB unavailable — let public paths through, block everything else
-		}
+    let setupComplete = false;
+    let hasAdmin = false;
+    let jwtSecret: string | null = null;
+    try {
+      const row = await settings.get();
+      setupComplete = Boolean(row?.onboarding_completed_at);
+      hasAdmin = Boolean(row?.admin_email);
+      jwtSecret = row?.jwt_secret ?? null;
+      if (jwtSecret) cachedSecret = jwtSecret;
+    } catch {
+      // DB unavailable — let public paths through, block everything else
+    }
 
-		// WhatsApp pairing routes are needed during onboarding step 3 — treat
-		// them like setup paths so they're accessible before onboarding completes.
-		const isOnboardingPath = path.startsWith(ONBOARDING_PATHS_PREFIX);
+    // WhatsApp pairing routes are needed during onboarding step 3 — treat
+    // them like setup paths so they're accessible before onboarding completes.
+    const isOnboardingPath = path.startsWith(ONBOARDING_PATHS_PREFIX);
 
-		// Setup bootstrap mode (no admin yet): only public paths + setup bootstrap.
-		if (!setupComplete && !hasAdmin) {
-			if (isPublicPath) {
-				return next();
-			}
-			return c.json({ error: { code: "SETUP_REQUIRED", message: "Onboarding not complete" } }, 503);
-		}
+    // Setup bootstrap mode (no admin yet): only public paths + setup bootstrap.
+    if (!setupComplete && !hasAdmin) {
+      if (isPublicPath) {
+        return next();
+      }
+      return c.json({ error: { code: "SETUP_REQUIRED", message: "Onboarding not complete" } }, 503);
+    }
 
-		// During onboarding after admin exists, allow setup + whatsapp routes (auth still required).
-		if (!setupComplete && !isSetupPath && !isOnboardingPath) {
-			if (isPublicPath) {
-				return next();
-			}
-			return c.json({ error: { code: "SETUP_REQUIRED", message: "Onboarding not complete" } }, 503);
-		}
+    // During onboarding after admin exists, allow setup + whatsapp routes (auth still required).
+    if (!setupComplete && !isSetupPath && !isOnboardingPath) {
+      if (isPublicPath) {
+        return next();
+      }
+      return c.json({ error: { code: "SETUP_REQUIRED", message: "Onboarding not complete" } }, 503);
+    }
 
-		// Public paths pass through.
-		if (isPublicPath) {
-			return next();
-		}
+    // Public paths pass through.
+    if (isPublicPath) {
+      return next();
+    }
 
-		const secret = jwtSecret ?? cachedSecret;
-		if (!secret) {
-			return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required" } }, 401);
-		}
+    const secret = jwtSecret ?? cachedSecret;
+    if (!secret) {
+      return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required" } }, 401);
+    }
 
-		const token = getCookie(c, SESSION_COOKIE);
-		if (!token) {
-			return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required" } }, 401);
-		}
+    const token = getCookie(c, SESSION_COOKIE);
+    if (!token) {
+      return c.json({ error: { code: "UNAUTHORIZED", message: "Authentication required" } }, 401);
+    }
 
-		const payload = await verifyJwt(token, secret);
-		if (!payload) {
-			return c.json({ error: { code: "UNAUTHORIZED", message: "Session expired" } }, 401);
-		}
+    const payload = await verifyJwt(token, secret);
+    if (!payload) {
+      return c.json({ error: { code: "UNAUTHORIZED", message: "Session expired" } }, 401);
+    }
 
-		return next();
-	};
+    return next();
+  };
 }

@@ -8,16 +8,16 @@ import { rootRoute } from "./routes/root";
 import { teamRoute } from "./routes/team";
 
 const routeTree = rootRoute.addChildren([
-	loginRoute,
-	onboardingRoute,
-	indexRoute,
-	dashboardRoute.addChildren([channelsRoute, teamRoute]),
+  loginRoute,
+  onboardingRoute,
+  indexRoute,
+  dashboardRoute.addChildren([channelsRoute, teamRoute]),
 ]);
 
 export const router = createRouter({ routeTree });
 
 declare module "@tanstack/react-router" {
-	interface Register {
-		router: typeof router;
-	}
+  interface Register {
+    router: typeof router;
+  }
 }

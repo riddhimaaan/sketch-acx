@@ -4,404 +4,404 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DB } from "../db/schema";
 import { createTestDb, createTestLogger } from "../test-utils";
 import {
-	WhatsAppBot,
-	extractContextInfo,
-	extractText,
-	hasMediaContent,
-	jidToPhoneNumber,
-	stripBotMention,
+  WhatsAppBot,
+  extractContextInfo,
+  extractText,
+  hasMediaContent,
+  jidToPhoneNumber,
+  stripBotMention,
 } from "./bot";
 
 describe("extractText", () => {
-	it("returns text from conversation field", () => {
-		const msg = { message: { conversation: "hello" } } as proto.IWebMessageInfo;
-		expect(extractText(msg)).toBe("hello");
-	});
+  it("returns text from conversation field", () => {
+    const msg = { message: { conversation: "hello" } } as proto.IWebMessageInfo;
+    expect(extractText(msg)).toBe("hello");
+  });
 
-	it("returns text from extendedTextMessage", () => {
-		const msg = {
-			message: { extendedTextMessage: { text: "quoted reply" } },
-		} as proto.IWebMessageInfo;
-		expect(extractText(msg)).toBe("quoted reply");
-	});
+  it("returns text from extendedTextMessage", () => {
+    const msg = {
+      message: { extendedTextMessage: { text: "quoted reply" } },
+    } as proto.IWebMessageInfo;
+    expect(extractText(msg)).toBe("quoted reply");
+  });
 
-	it("returns caption from imageMessage", () => {
-		const msg = {
-			message: { imageMessage: { caption: "photo caption" } },
-		} as proto.IWebMessageInfo;
-		expect(extractText(msg)).toBe("photo caption");
-	});
+  it("returns caption from imageMessage", () => {
+    const msg = {
+      message: { imageMessage: { caption: "photo caption" } },
+    } as proto.IWebMessageInfo;
+    expect(extractText(msg)).toBe("photo caption");
+  });
 
-	it("returns caption from videoMessage", () => {
-		const msg = {
-			message: { videoMessage: { caption: "video caption" } },
-		} as proto.IWebMessageInfo;
-		expect(extractText(msg)).toBe("video caption");
-	});
+  it("returns caption from videoMessage", () => {
+    const msg = {
+      message: { videoMessage: { caption: "video caption" } },
+    } as proto.IWebMessageInfo;
+    expect(extractText(msg)).toBe("video caption");
+  });
 
-	it("returns caption from documentMessage", () => {
-		const msg = {
-			message: { documentMessage: { caption: "doc caption" } },
-		} as proto.IWebMessageInfo;
-		expect(extractText(msg)).toBe("doc caption");
-	});
+  it("returns caption from documentMessage", () => {
+    const msg = {
+      message: { documentMessage: { caption: "doc caption" } },
+    } as proto.IWebMessageInfo;
+    expect(extractText(msg)).toBe("doc caption");
+  });
 
-	it("returns null for media-only messages without caption", () => {
-		const msg = {
-			message: { imageMessage: { url: "https://example.com/img.jpg" } },
-		} as proto.IWebMessageInfo;
-		expect(extractText(msg)).toBeNull();
-	});
+  it("returns null for media-only messages without caption", () => {
+    const msg = {
+      message: { imageMessage: { url: "https://example.com/img.jpg" } },
+    } as proto.IWebMessageInfo;
+    expect(extractText(msg)).toBeNull();
+  });
 
-	it("returns null when message is undefined", () => {
-		const msg = {} as proto.IWebMessageInfo;
-		expect(extractText(msg)).toBeNull();
-	});
+  it("returns null when message is undefined", () => {
+    const msg = {} as proto.IWebMessageInfo;
+    expect(extractText(msg)).toBeNull();
+  });
 });
 
 describe("hasMediaContent", () => {
-	it("returns true for imageMessage", () => {
-		expect(hasMediaContent("imageMessage")).toBe(true);
-	});
+  it("returns true for imageMessage", () => {
+    expect(hasMediaContent("imageMessage")).toBe(true);
+  });
 
-	it("returns true for videoMessage", () => {
-		expect(hasMediaContent("videoMessage")).toBe(true);
-	});
+  it("returns true for videoMessage", () => {
+    expect(hasMediaContent("videoMessage")).toBe(true);
+  });
 
-	it("returns true for audioMessage", () => {
-		expect(hasMediaContent("audioMessage")).toBe(true);
-	});
+  it("returns true for audioMessage", () => {
+    expect(hasMediaContent("audioMessage")).toBe(true);
+  });
 
-	it("returns true for documentMessage", () => {
-		expect(hasMediaContent("documentMessage")).toBe(true);
-	});
+  it("returns true for documentMessage", () => {
+    expect(hasMediaContent("documentMessage")).toBe(true);
+  });
 
-	it("returns true for stickerMessage", () => {
-		expect(hasMediaContent("stickerMessage")).toBe(true);
-	});
+  it("returns true for stickerMessage", () => {
+    expect(hasMediaContent("stickerMessage")).toBe(true);
+  });
 
-	it("returns false for conversation", () => {
-		expect(hasMediaContent("conversation")).toBe(false);
-	});
+  it("returns false for conversation", () => {
+    expect(hasMediaContent("conversation")).toBe(false);
+  });
 
-	it("returns false for extendedTextMessage", () => {
-		expect(hasMediaContent("extendedTextMessage")).toBe(false);
-	});
+  it("returns false for extendedTextMessage", () => {
+    expect(hasMediaContent("extendedTextMessage")).toBe(false);
+  });
 
-	it("returns false for undefined", () => {
-		expect(hasMediaContent(undefined)).toBe(false);
-	});
+  it("returns false for undefined", () => {
+    expect(hasMediaContent(undefined)).toBe(false);
+  });
 });
 
 describe("jidToPhoneNumber", () => {
-	it("strips @s.whatsapp.net and prepends +", () => {
-		expect(jidToPhoneNumber("14155238886@s.whatsapp.net")).toBe("+14155238886");
-	});
+  it("strips @s.whatsapp.net and prepends +", () => {
+    expect(jidToPhoneNumber("14155238886@s.whatsapp.net")).toBe("+14155238886");
+  });
 
-	it("handles LID format (number:device@s.whatsapp.net)", () => {
-		expect(jidToPhoneNumber("919876543210:0@s.whatsapp.net")).toBe("+919876543210");
-	});
+  it("handles LID format (number:device@s.whatsapp.net)", () => {
+    expect(jidToPhoneNumber("919876543210:0@s.whatsapp.net")).toBe("+919876543210");
+  });
 
-	it("handles number with device suffix > 0", () => {
-		expect(jidToPhoneNumber("14155238886:2@s.whatsapp.net")).toBe("+14155238886");
-	});
+  it("handles number with device suffix > 0", () => {
+    expect(jidToPhoneNumber("14155238886:2@s.whatsapp.net")).toBe("+14155238886");
+  });
 
-	it("handles @lid JID format", () => {
-		expect(jidToPhoneNumber("86702773280883@lid")).toBe("+86702773280883");
-	});
+  it("handles @lid JID format", () => {
+    expect(jidToPhoneNumber("86702773280883@lid")).toBe("+86702773280883");
+  });
 
-	it("handles @lid JID with device suffix", () => {
-		expect(jidToPhoneNumber("86702773280883:0@lid")).toBe("+86702773280883");
-	});
+  it("handles @lid JID with device suffix", () => {
+    expect(jidToPhoneNumber("86702773280883:0@lid")).toBe("+86702773280883");
+  });
 });
 
 describe("WhatsAppBot.phoneNumber", () => {
-	let db: Kysely<DB>;
+  let db: Kysely<DB>;
 
-	beforeEach(async () => {
-		db = await createTestDb();
-	});
+  beforeEach(async () => {
+    db = await createTestDb();
+  });
 
-	afterEach(async () => {
-		await db.destroy();
-	});
+  afterEach(async () => {
+    await db.destroy();
+  });
 
-	it("returns null when not connected (no socket)", () => {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
-		expect(bot.phoneNumber).toBeNull();
-	});
+  it("returns null when not connected (no socket)", () => {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+    expect(bot.phoneNumber).toBeNull();
+  });
 
-	it("returns null when socket has no user", () => {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
-		// Access private sock field via cast to set up the test scenario
-		(bot as unknown as { sock: { user: undefined } }).sock = { user: undefined };
-		expect(bot.phoneNumber).toBeNull();
-	});
+  it("returns null when socket has no user", () => {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+    // Access private sock field via cast to set up the test scenario
+    (bot as unknown as { sock: { user: undefined } }).sock = { user: undefined };
+    expect(bot.phoneNumber).toBeNull();
+  });
 
-	it("extracts phone number from sock.user.id (simple format)", () => {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
-		(bot as unknown as { sock: { user: { id: string } } }).sock = {
-			user: { id: "919876543210@s.whatsapp.net" },
-		};
-		expect(bot.phoneNumber).toBe("+919876543210");
-	});
+  it("extracts phone number from sock.user.id (simple format)", () => {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+    (bot as unknown as { sock: { user: { id: string } } }).sock = {
+      user: { id: "919876543210@s.whatsapp.net" },
+    };
+    expect(bot.phoneNumber).toBe("+919876543210");
+  });
 
-	it("extracts phone number from sock.user.id (LID format with device)", () => {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
-		(bot as unknown as { sock: { user: { id: string } } }).sock = {
-			user: { id: "14155238886:0@s.whatsapp.net" },
-		};
-		expect(bot.phoneNumber).toBe("+14155238886");
-	});
+  it("extracts phone number from sock.user.id (LID format with device)", () => {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+    (bot as unknown as { sock: { user: { id: string } } }).sock = {
+      user: { id: "14155238886:0@s.whatsapp.net" },
+    };
+    expect(bot.phoneNumber).toBe("+14155238886");
+  });
 });
 
 describe("WhatsAppBot.disconnect", () => {
-	let db: Kysely<DB>;
+  let db: Kysely<DB>;
 
-	beforeEach(async () => {
-		db = await createTestDb();
-	});
+  beforeEach(async () => {
+    db = await createTestDb();
+  });
 
-	afterEach(async () => {
-		await db.destroy();
-	});
+  afterEach(async () => {
+    await db.destroy();
+  });
 
-	it("clears credentials from DB", async () => {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+  it("clears credentials from DB", async () => {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
 
-		// Seed some creds so there's something to clear
-		await db.insertInto("whatsapp_creds").values({ id: "default", creds: "{}" }).execute();
-		await db.insertInto("whatsapp_keys").values({ type: "pre-key", key_id: "1", value: "{}" }).execute();
+    // Seed some creds so there's something to clear
+    await db.insertInto("whatsapp_creds").values({ id: "default", creds: "{}" }).execute();
+    await db.insertInto("whatsapp_keys").values({ type: "pre-key", key_id: "1", value: "{}" }).execute();
 
-		// Verify creds exist before disconnect
-		const before = await db.selectFrom("whatsapp_creds").selectAll().execute();
-		expect(before).toHaveLength(1);
+    // Verify creds exist before disconnect
+    const before = await db.selectFrom("whatsapp_creds").selectAll().execute();
+    expect(before).toHaveLength(1);
 
-		await bot.disconnect();
+    await bot.disconnect();
 
-		// Verify creds and keys are cleared
-		const credsAfter = await db.selectFrom("whatsapp_creds").selectAll().execute();
-		const keysAfter = await db.selectFrom("whatsapp_keys").selectAll().execute();
-		expect(credsAfter).toHaveLength(0);
-		expect(keysAfter).toHaveLength(0);
-	});
+    // Verify creds and keys are cleared
+    const credsAfter = await db.selectFrom("whatsapp_creds").selectAll().execute();
+    const keysAfter = await db.selectFrom("whatsapp_keys").selectAll().execute();
+    expect(credsAfter).toHaveLength(0);
+    expect(keysAfter).toHaveLength(0);
+  });
 
-	it("is safe to call when not connected", async () => {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
-		// Should not throw
-		await bot.disconnect();
-		expect(bot.isConnected).toBe(false);
-	});
+  it("is safe to call when not connected", async () => {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+    // Should not throw
+    await bot.disconnect();
+    expect(bot.isConnected).toBe(false);
+  });
 });
 
 describe("WhatsAppBot.composing", () => {
-	let db: Kysely<DB>;
+  let db: Kysely<DB>;
 
-	beforeEach(async () => {
-		vi.useFakeTimers();
-		db = await createTestDb();
-	});
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    db = await createTestDb();
+  });
 
-	afterEach(async () => {
-		vi.useRealTimers();
-		await db.destroy();
-	});
+  afterEach(async () => {
+    vi.useRealTimers();
+    await db.destroy();
+  });
 
-	function createBotWithMockSock() {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
-		const sendPresenceUpdate = vi.fn().mockResolvedValue(undefined);
-		(bot as unknown as { sock: { sendPresenceUpdate: typeof sendPresenceUpdate } }).sock = {
-			sendPresenceUpdate,
-		};
-		return { bot, sendPresenceUpdate };
-	}
+  function createBotWithMockSock() {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+    const sendPresenceUpdate = vi.fn().mockResolvedValue(undefined);
+    (bot as unknown as { sock: { sendPresenceUpdate: typeof sendPresenceUpdate } }).sock = {
+      sendPresenceUpdate,
+    };
+    return { bot, sendPresenceUpdate };
+  }
 
-	it("sends composing immediately on startComposing", () => {
-		const { bot, sendPresenceUpdate } = createBotWithMockSock();
-		bot.startComposing("123@s.whatsapp.net");
-		expect(sendPresenceUpdate).toHaveBeenCalledWith("composing", "123@s.whatsapp.net");
-		bot.stopComposing("123@s.whatsapp.net");
-	});
+  it("sends composing immediately on startComposing", () => {
+    const { bot, sendPresenceUpdate } = createBotWithMockSock();
+    bot.startComposing("123@s.whatsapp.net");
+    expect(sendPresenceUpdate).toHaveBeenCalledWith("composing", "123@s.whatsapp.net");
+    bot.stopComposing("123@s.whatsapp.net");
+  });
 
-	it("re-sends composing every 5 seconds", () => {
-		const { bot, sendPresenceUpdate } = createBotWithMockSock();
-		bot.startComposing("123@s.whatsapp.net");
-		expect(sendPresenceUpdate).toHaveBeenCalledTimes(1);
+  it("re-sends composing every 5 seconds", () => {
+    const { bot, sendPresenceUpdate } = createBotWithMockSock();
+    bot.startComposing("123@s.whatsapp.net");
+    expect(sendPresenceUpdate).toHaveBeenCalledTimes(1);
 
-		vi.advanceTimersByTime(5000);
-		expect(sendPresenceUpdate).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(5000);
+    expect(sendPresenceUpdate).toHaveBeenCalledTimes(2);
 
-		vi.advanceTimersByTime(5000);
-		expect(sendPresenceUpdate).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(5000);
+    expect(sendPresenceUpdate).toHaveBeenCalledTimes(3);
 
-		bot.stopComposing("123@s.whatsapp.net");
-	});
+    bot.stopComposing("123@s.whatsapp.net");
+  });
 
-	it("stopComposing clears interval and sends paused", () => {
-		const { bot, sendPresenceUpdate } = createBotWithMockSock();
-		bot.startComposing("123@s.whatsapp.net");
-		sendPresenceUpdate.mockClear();
+  it("stopComposing clears interval and sends paused", () => {
+    const { bot, sendPresenceUpdate } = createBotWithMockSock();
+    bot.startComposing("123@s.whatsapp.net");
+    sendPresenceUpdate.mockClear();
 
-		bot.stopComposing("123@s.whatsapp.net");
-		expect(sendPresenceUpdate).toHaveBeenCalledWith("paused", "123@s.whatsapp.net");
+    bot.stopComposing("123@s.whatsapp.net");
+    expect(sendPresenceUpdate).toHaveBeenCalledWith("paused", "123@s.whatsapp.net");
 
-		// No more composing calls after stop
-		vi.advanceTimersByTime(10_000);
-		expect(sendPresenceUpdate).toHaveBeenCalledTimes(1); // only the paused call
-	});
+    // No more composing calls after stop
+    vi.advanceTimersByTime(10_000);
+    expect(sendPresenceUpdate).toHaveBeenCalledTimes(1); // only the paused call
+  });
 
-	it("auto-stops after TTL (3 minutes)", () => {
-		const { bot, sendPresenceUpdate } = createBotWithMockSock();
-		bot.startComposing("123@s.whatsapp.net");
-		sendPresenceUpdate.mockClear();
+  it("auto-stops after TTL (3 minutes)", () => {
+    const { bot, sendPresenceUpdate } = createBotWithMockSock();
+    bot.startComposing("123@s.whatsapp.net");
+    sendPresenceUpdate.mockClear();
 
-		vi.advanceTimersByTime(3 * 60_000);
-		// Should have sent paused via TTL auto-cleanup
-		expect(sendPresenceUpdate).toHaveBeenCalledWith("paused", "123@s.whatsapp.net");
+    vi.advanceTimersByTime(3 * 60_000);
+    // Should have sent paused via TTL auto-cleanup
+    expect(sendPresenceUpdate).toHaveBeenCalledWith("paused", "123@s.whatsapp.net");
 
-		// No more composing after TTL
-		sendPresenceUpdate.mockClear();
-		vi.advanceTimersByTime(10_000);
-		expect(sendPresenceUpdate).not.toHaveBeenCalled();
-	});
+    // No more composing after TTL
+    sendPresenceUpdate.mockClear();
+    vi.advanceTimersByTime(10_000);
+    expect(sendPresenceUpdate).not.toHaveBeenCalled();
+  });
 
-	it("startComposing is safe when no socket", () => {
-		const bot = new WhatsAppBot({ db, logger: createTestLogger() });
-		// Should not throw
-		bot.startComposing("123@s.whatsapp.net");
-		bot.stopComposing("123@s.whatsapp.net");
-	});
+  it("startComposing is safe when no socket", () => {
+    const bot = new WhatsAppBot({ db, logger: createTestLogger() });
+    // Should not throw
+    bot.startComposing("123@s.whatsapp.net");
+    bot.stopComposing("123@s.whatsapp.net");
+  });
 });
 
 describe("extractContextInfo", () => {
-	it("returns contextInfo from extendedTextMessage", () => {
-		const msg: proto.IMessage = {
-			extendedTextMessage: {
-				contextInfo: { mentionedJid: ["123@s.whatsapp.net"] },
-			},
-		};
-		const info = extractContextInfo(msg);
-		expect(info?.mentionedJid).toEqual(["123@s.whatsapp.net"]);
-	});
+  it("returns contextInfo from extendedTextMessage", () => {
+    const msg: proto.IMessage = {
+      extendedTextMessage: {
+        contextInfo: { mentionedJid: ["123@s.whatsapp.net"] },
+      },
+    };
+    const info = extractContextInfo(msg);
+    expect(info?.mentionedJid).toEqual(["123@s.whatsapp.net"]);
+  });
 
-	it("returns contextInfo from imageMessage", () => {
-		const msg: proto.IMessage = {
-			imageMessage: {
-				contextInfo: { mentionedJid: ["456@s.whatsapp.net"] },
-			},
-		};
-		const info = extractContextInfo(msg);
-		expect(info?.mentionedJid).toEqual(["456@s.whatsapp.net"]);
-	});
+  it("returns contextInfo from imageMessage", () => {
+    const msg: proto.IMessage = {
+      imageMessage: {
+        contextInfo: { mentionedJid: ["456@s.whatsapp.net"] },
+      },
+    };
+    const info = extractContextInfo(msg);
+    expect(info?.mentionedJid).toEqual(["456@s.whatsapp.net"]);
+  });
 
-	it("returns contextInfo from videoMessage", () => {
-		const msg: proto.IMessage = {
-			videoMessage: {
-				contextInfo: { mentionedJid: ["789@s.whatsapp.net"] },
-			},
-		};
-		const info = extractContextInfo(msg);
-		expect(info?.mentionedJid).toEqual(["789@s.whatsapp.net"]);
-	});
+  it("returns contextInfo from videoMessage", () => {
+    const msg: proto.IMessage = {
+      videoMessage: {
+        contextInfo: { mentionedJid: ["789@s.whatsapp.net"] },
+      },
+    };
+    const info = extractContextInfo(msg);
+    expect(info?.mentionedJid).toEqual(["789@s.whatsapp.net"]);
+  });
 
-	it("returns contextInfo from audioMessage", () => {
-		const msg: proto.IMessage = {
-			audioMessage: {
-				contextInfo: { participant: "bot@s.whatsapp.net" },
-			},
-		};
-		const info = extractContextInfo(msg);
-		expect(info?.participant).toBe("bot@s.whatsapp.net");
-	});
+  it("returns contextInfo from audioMessage", () => {
+    const msg: proto.IMessage = {
+      audioMessage: {
+        contextInfo: { participant: "bot@s.whatsapp.net" },
+      },
+    };
+    const info = extractContextInfo(msg);
+    expect(info?.participant).toBe("bot@s.whatsapp.net");
+  });
 
-	it("returns contextInfo from documentMessage", () => {
-		const msg: proto.IMessage = {
-			documentMessage: {
-				contextInfo: { mentionedJid: ["doc@s.whatsapp.net"] },
-			},
-		};
-		const info = extractContextInfo(msg);
-		expect(info?.mentionedJid).toEqual(["doc@s.whatsapp.net"]);
-	});
+  it("returns contextInfo from documentMessage", () => {
+    const msg: proto.IMessage = {
+      documentMessage: {
+        contextInfo: { mentionedJid: ["doc@s.whatsapp.net"] },
+      },
+    };
+    const info = extractContextInfo(msg);
+    expect(info?.mentionedJid).toEqual(["doc@s.whatsapp.net"]);
+  });
 
-	it("returns contextInfo from stickerMessage", () => {
-		const msg: proto.IMessage = {
-			stickerMessage: {
-				contextInfo: { participant: "sticker@s.whatsapp.net" },
-			},
-		};
-		const info = extractContextInfo(msg);
-		expect(info?.participant).toBe("sticker@s.whatsapp.net");
-	});
+  it("returns contextInfo from stickerMessage", () => {
+    const msg: proto.IMessage = {
+      stickerMessage: {
+        contextInfo: { participant: "sticker@s.whatsapp.net" },
+      },
+    };
+    const info = extractContextInfo(msg);
+    expect(info?.participant).toBe("sticker@s.whatsapp.net");
+  });
 
-	it("returns undefined for conversation-only message", () => {
-		const msg: proto.IMessage = { conversation: "hello" };
-		expect(extractContextInfo(msg)).toBeUndefined();
-	});
+  it("returns undefined for conversation-only message", () => {
+    const msg: proto.IMessage = { conversation: "hello" };
+    expect(extractContextInfo(msg)).toBeUndefined();
+  });
 
-	it("returns undefined when no contextInfo present", () => {
-		const msg: proto.IMessage = {
-			imageMessage: { url: "https://example.com/img.jpg" },
-		};
-		expect(extractContextInfo(msg)).toBeUndefined();
-	});
+  it("returns undefined when no contextInfo present", () => {
+    const msg: proto.IMessage = {
+      imageMessage: { url: "https://example.com/img.jpg" },
+    };
+    expect(extractContextInfo(msg)).toBeUndefined();
+  });
 
-	it("prioritizes extendedTextMessage over imageMessage", () => {
-		const msg: proto.IMessage = {
-			extendedTextMessage: {
-				contextInfo: { mentionedJid: ["text@s.whatsapp.net"] },
-			},
-			imageMessage: {
-				contextInfo: { mentionedJid: ["image@s.whatsapp.net"] },
-			},
-		};
-		const info = extractContextInfo(msg);
-		expect(info?.mentionedJid).toEqual(["text@s.whatsapp.net"]);
-	});
+  it("prioritizes extendedTextMessage over imageMessage", () => {
+    const msg: proto.IMessage = {
+      extendedTextMessage: {
+        contextInfo: { mentionedJid: ["text@s.whatsapp.net"] },
+      },
+      imageMessage: {
+        contextInfo: { mentionedJid: ["image@s.whatsapp.net"] },
+      },
+    };
+    const info = extractContextInfo(msg);
+    expect(info?.mentionedJid).toEqual(["text@s.whatsapp.net"]);
+  });
 });
 
 describe("stripBotMention", () => {
-	it("strips @BotName when bot name matches", () => {
-		expect(stripBotMention("@Sketch what's the weather?", "Sketch")).toBe("what's the weather?");
-	});
+  it("strips @BotName when bot name matches", () => {
+    expect(stripBotMention("@Sketch what's the weather?", "Sketch")).toBe("what's the weather?");
+  });
 
-	it("strips @BotName case-insensitively", () => {
-		expect(stripBotMention("@sketch hello", "Sketch")).toBe("hello");
-	});
+  it("strips @BotName case-insensitively", () => {
+    expect(stripBotMention("@sketch hello", "Sketch")).toBe("hello");
+  });
 
-	it("strips @mention with zero-width characters", () => {
-		expect(stripBotMention("@\u200BSketch help me", "Sketch")).toBe("help me");
-	});
+  it("strips @mention with zero-width characters", () => {
+    expect(stripBotMention("@\u200BSketch help me", "Sketch")).toBe("help me");
+  });
 
-	it("strips @mention at end of message", () => {
-		expect(stripBotMention("hey @Sketch", "Sketch")).toBe("hey");
-	});
+  it("strips @mention at end of message", () => {
+    expect(stripBotMention("hey @Sketch", "Sketch")).toBe("hey");
+  });
 
-	it("collapses double spaces after stripping", () => {
-		expect(stripBotMention("hello @Sketch world", "Sketch")).toBe("hello world");
-	});
+  it("collapses double spaces after stripping", () => {
+    expect(stripBotMention("hello @Sketch world", "Sketch")).toBe("hello world");
+  });
 
-	it("falls back to stripping first @token when no bot name", () => {
-		expect(stripBotMention("@Someone help", null)).toBe("help");
-	});
+  it("falls back to stripping first @token when no bot name", () => {
+    expect(stripBotMention("@Someone help", null)).toBe("help");
+  });
 
-	it("falls back when bot name doesn't match", () => {
-		expect(stripBotMention("@OtherBot hello", "Sketch")).toBe("hello");
-	});
+  it("falls back when bot name doesn't match", () => {
+    expect(stripBotMention("@OtherBot hello", "Sketch")).toBe("hello");
+  });
 
-	it("handles message with only a mention", () => {
-		expect(stripBotMention("@Sketch", "Sketch")).toBe("");
-	});
+  it("handles message with only a mention", () => {
+    expect(stripBotMention("@Sketch", "Sketch")).toBe("");
+  });
 
-	it("escapes regex special chars in bot name", () => {
-		expect(stripBotMention("@Bot++ hello", "Bot++")).toBe("hello");
-	});
+  it("escapes regex special chars in bot name", () => {
+    expect(stripBotMention("@Bot++ hello", "Bot++")).toBe("hello");
+  });
 
-	it("handles empty string", () => {
-		expect(stripBotMention("", "Sketch")).toBe("");
-	});
+  it("handles empty string", () => {
+    expect(stripBotMention("", "Sketch")).toBe("");
+  });
 
-	it("returns text unchanged when no @mention present", () => {
-		expect(stripBotMention("no mention here", "Sketch")).toBe("no mention here");
-	});
+  it("returns text unchanged when no @mention present", () => {
+    expect(stripBotMention("no mention here", "Sketch")).toBe("no mention here");
+  });
 });

@@ -7,24 +7,24 @@ const WHATSAPP_TEXT_LIMIT = 4000;
  * Only activates when text exceeds the limit — short messages pass through unchanged.
  */
 export function chunkText(text: string, limit = WHATSAPP_TEXT_LIMIT): string[] {
-	if (text.length <= limit) return [text];
+  if (text.length <= limit) return [text];
 
-	const chunks: string[] = [];
-	let remaining = text;
+  const chunks: string[] = [];
+  let remaining = text;
 
-	while (remaining.length > limit) {
-		const window = remaining.slice(0, limit);
-		let breakIdx = window.lastIndexOf("\n");
-		if (breakIdx <= 0) breakIdx = window.lastIndexOf(" ");
-		if (breakIdx <= 0) breakIdx = limit;
+  while (remaining.length > limit) {
+    const window = remaining.slice(0, limit);
+    let breakIdx = window.lastIndexOf("\n");
+    if (breakIdx <= 0) breakIdx = window.lastIndexOf(" ");
+    if (breakIdx <= 0) breakIdx = limit;
 
-		chunks.push(remaining.slice(0, breakIdx).trimEnd());
-		remaining = remaining.slice(breakIdx).trimStart();
-	}
+    chunks.push(remaining.slice(0, breakIdx).trimEnd());
+    remaining = remaining.slice(breakIdx).trimStart();
+  }
 
-	if (remaining.length > 0) {
-		chunks.push(remaining);
-	}
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
 
-	return chunks;
+  return chunks;
 }
