@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type Provider = "anthropic" | "bedrock";
+type Provider = "anthropic" | "bedrock" | "openrouter";
 
 interface StepConfigureLLMProps {
   initialProvider?: Provider;
@@ -41,12 +41,21 @@ export function StepConfigureLLM({ initialProvider, initialConnected, onNext }: 
   const canConnect =
     provider === "anthropic"
       ? apiKey.trim().length > 0
-      : awsAccessKey.trim().length > 0 && awsSecretKey.trim().length > 0 && awsRegion.trim().length > 0;
+      : provider === "openrouter"
+        ? apiKey.trim().length > 0
+        : awsAccessKey.trim().length > 0 && awsSecretKey.trim().length > 0 && awsRegion.trim().length > 0;
 
   const llmMutation = useMutation({
     mutationFn: async () => {
       if (provider === "anthropic") {
         const payload = { provider: "anthropic" as const, apiKey: apiKey.trim() };
+        await api.setup.verifyLlm(payload);
+        await api.setup.llm(payload);
+        return;
+      }
+
+      if (provider === "openrouter") {
+        const payload = { provider: "openrouter" as const, apiKey: apiKey.trim() };
         await api.setup.verifyLlm(payload);
         await api.setup.llm(payload);
         return;
@@ -66,7 +75,9 @@ export function StepConfigureLLM({ initialProvider, initialConnected, onNext }: 
       setApiKey("");
       setAwsAccessKey("");
       setAwsSecretKey("");
-      toast.success(`Connected to ${provider === "anthropic" ? "Anthropic" : "AWS Bedrock"}, using Claude Sonnet.`);
+      const providerLabel =
+        provider === "anthropic" ? "Anthropic" : provider === "openrouter" ? "OpenRouter" : "AWS Bedrock";
+      toast.success(`Connected to ${providerLabel}, using Claude Sonnet.`);
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -99,7 +110,8 @@ export function StepConfigureLLM({ initialProvider, initialConnected, onNext }: 
               </div>
               <div>
                 <p className="text-sm font-medium">
-                  Connected to {provider === "anthropic" ? "Anthropic" : "AWS Bedrock"}
+                  Connected to{" "}
+                  {provider === "anthropic" ? "Anthropic" : provider === "openrouter" ? "OpenRouter" : "AWS Bedrock"}
                 </p>
                 <p className="text-xs text-muted-foreground">Using Claude Sonnet</p>
               </div>
@@ -111,7 +123,7 @@ export function StepConfigureLLM({ initialProvider, initialConnected, onNext }: 
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <button
               type="button"
               onClick={() => {
@@ -130,9 +142,9 @@ export function StepConfigureLLM({ initialProvider, initialConnected, onNext }: 
                   <title>Anthropic logo</title>
                   <path d="M13.827 3.52h3.603L24 20.48h-3.603l-6.57-16.96zm-7.258 0h3.604L16.742 20.48h-3.603L6.569 3.52zM0 20.48h3.604L10.174 3.52H6.569L0 20.48z" />
                 </svg>
-                <span className="text-sm font-medium">Anthropic (Direct)</span>
+                <span className="text-sm font-medium">Anthropic</span>
               </div>
-              <p className="text-xs text-muted-foreground">Use your Anthropic API key directly</p>
+              <p className="text-xs text-muted-foreground">Direct Anthropic API key</p>
             </button>
             <button
               type="button"
@@ -154,7 +166,29 @@ export function StepConfigureLLM({ initialProvider, initialConnected, onNext }: 
                 </svg>
                 <span className="text-sm font-medium">AWS Bedrock</span>
               </div>
-              <p className="text-xs text-muted-foreground">Use Claude through your AWS account</p>
+              <p className="text-xs text-muted-foreground">Claude via your AWS account</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setProvider("openrouter");
+                setError("");
+              }}
+              className={cn(
+                "rounded-lg border p-4 text-left transition-all",
+                provider === "openrouter"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border bg-card hover:border-muted-foreground/30",
+              )}
+            >
+              <div className="mb-1.5 flex items-center gap-2">
+                <svg className="size-4" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true" focusable="false">
+                  <title>OpenRouter logo</title>
+                  <path d="M256 48C141.1 48 48 141.1 48 256s93.1 208 208 208 208-93.1 208-208S370.9 48 256 48zm0 384c-97.2 0-176-78.8-176-176S158.8 80 256 80s176 78.8 176 176-78.8 176-176 176zm-32-256h64v128h-64z" />
+                </svg>
+                <span className="text-sm font-medium">OpenRouter</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Claude via OpenRouter API</p>
             </button>
           </div>
 
@@ -170,6 +204,21 @@ export function StepConfigureLLM({ initialProvider, initialConnected, onNext }: 
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="sk-ant-..."
+                  disabled={isVerifying}
+                  className="font-mono text-xs"
+                />
+              </div>
+            ) : provider === "openrouter" ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="apiKey" className="text-xs">
+                  API Key
+                </Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-or-v1-..."
                   disabled={isVerifying}
                   className="font-mono text-xs"
                 />

@@ -56,6 +56,10 @@ const llmSchema = z.discriminatedUnion("provider", [
     awsSecretAccessKey: z.string().min(1, "AWS Secret Access Key is required"),
     awsRegion: z.string().min(1, "AWS Region is required"),
   }),
+  z.object({
+    provider: z.literal("openrouter"),
+    apiKey: z.string().min(1, "API key is required"),
+  }),
 ]);
 
 async function verifyAnthropicApiKey(apiKey: string): Promise<void> {
@@ -71,6 +75,22 @@ async function verifyAnthropicApiKey(apiKey: string): Promise<void> {
       max_tokens: 1,
       messages: [{ role: "user", content: "Ping" }],
     }),
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("invalid_auth");
+  }
+
+  if (!response.ok) {
+    throw new Error("verification_failed");
+  }
+}
+
+async function verifyOpenrouterApiKey(apiKey: string): Promise<void> {
+  const response = await fetch("https://openrouter.ai/api/v1/models", {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
   });
 
   if (response.status === 401 || response.status === 403) {
@@ -101,7 +121,8 @@ export function setupRoutes(settings: SettingsRepo, deps: SetupDeps = {}) {
     const hasBedrock =
       row?.llm_provider === "bedrock" &&
       Boolean(row?.aws_access_key_id?.trim() && row?.aws_secret_access_key?.trim() && row?.aws_region?.trim());
-    const hasLlm = Boolean(hasAnthropic || hasBedrock);
+    const hasOpenrouter = row?.llm_provider === "openrouter" && Boolean(row?.openrouter_api_key?.trim());
+    const hasLlm = Boolean(hasAnthropic || hasBedrock || hasOpenrouter);
     const isCompleted = Boolean(row?.onboarding_completed_at);
     const currentStep = isCompleted ? 5 : hasLlm ? 5 : hasSlack ? 4 : hasIdentity ? 3 : hasAdmin ? 2 : 0;
     return c.json({
@@ -112,7 +133,14 @@ export function setupRoutes(settings: SettingsRepo, deps: SetupDeps = {}) {
       botName: row?.bot_name ?? "Sketch",
       slackConnected: hasSlack,
       llmConnected: hasLlm,
-      llmProvider: row?.llm_provider === "bedrock" ? "bedrock" : row?.llm_provider === "anthropic" ? "anthropic" : null,
+      llmProvider:
+        row?.llm_provider === "bedrock"
+          ? "bedrock"
+          : row?.llm_provider === "anthropic"
+            ? "anthropic"
+            : row?.llm_provider === "openrouter"
+              ? "openrouter"
+              : null,
     });
   });
 
@@ -268,6 +296,22 @@ export function setupRoutes(settings: SettingsRepo, deps: SetupDeps = {}) {
       }
     }
 
+    if (parsed.data.provider === "openrouter") {
+      try {
+        await verifyOpenrouterApiKey(parsed.data.apiKey.trim());
+      } catch {
+        return c.json(
+          {
+            error: {
+              code: "INVALID_LLM_SETTINGS",
+              message: "Invalid OpenRouter API key. Check your key and try again.",
+            },
+          },
+          400,
+        );
+      }
+    }
+
     return c.json({ success: true });
   });
 
@@ -294,6 +338,16 @@ export function setupRoutes(settings: SettingsRepo, deps: SetupDeps = {}) {
         awsAccessKeyId: null,
         awsSecretAccessKey: null,
         awsRegion: null,
+        openrouterApiKey: null,
+      });
+    } else if (parsed.data.provider === "openrouter") {
+      await settings.update({
+        llmProvider: "openrouter",
+        openrouterApiKey: parsed.data.apiKey.trim(),
+        anthropicApiKey: null,
+        awsAccessKeyId: null,
+        awsSecretAccessKey: null,
+        awsRegion: null,
       });
     } else {
       await settings.update({
@@ -302,6 +356,7 @@ export function setupRoutes(settings: SettingsRepo, deps: SetupDeps = {}) {
         awsAccessKeyId: parsed.data.awsAccessKeyId.trim(),
         awsSecretAccessKey: parsed.data.awsSecretAccessKey.trim(),
         awsRegion: parsed.data.awsRegion.trim(),
+        openrouterApiKey: null,
       });
     }
 

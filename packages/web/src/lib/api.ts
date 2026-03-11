@@ -54,7 +54,7 @@ export interface SetupStatus {
   botName: string;
   slackConnected: boolean;
   llmConnected: boolean;
-  llmProvider: "anthropic" | "bedrock" | null;
+  llmProvider: "anthropic" | "bedrock" | "openrouter" | null;
 }
 
 export interface SessionResponse {
@@ -87,7 +87,8 @@ export const api = {
     verifyLlm(
       data:
         | { provider: "anthropic"; apiKey: string }
-        | { provider: "bedrock"; awsAccessKeyId: string; awsSecretAccessKey: string; awsRegion: string },
+        | { provider: "bedrock"; awsAccessKeyId: string; awsSecretAccessKey: string; awsRegion: string }
+        | { provider: "openrouter"; apiKey: string },
     ) {
       return request<{ success: boolean }>("/api/setup/llm/verify", {
         method: "POST",
@@ -115,7 +116,8 @@ export const api = {
     llm(
       data:
         | { provider: "anthropic"; apiKey: string }
-        | { provider: "bedrock"; awsAccessKeyId: string; awsSecretAccessKey: string; awsRegion: string },
+        | { provider: "bedrock"; awsAccessKeyId: string; awsSecretAccessKey: string; awsRegion: string }
+        | { provider: "openrouter"; apiKey: string },
     ) {
       return request<{ success: boolean }>("/api/setup/llm", {
         method: "POST",
