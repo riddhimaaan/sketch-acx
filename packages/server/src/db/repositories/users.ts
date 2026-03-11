@@ -16,11 +16,15 @@ export function createUserRepository(db: Kysely<DB>) {
       return db.selectFrom("users").selectAll().where("whatsapp_number", "=", whatsappNumber).executeTakeFirst();
     },
 
+    async findByEmail(email: string) {
+      return db.selectFrom("users").selectAll().where("email", "=", email).executeTakeFirst();
+    },
+
     async findById(id: string) {
       return db.selectFrom("users").selectAll().where("id", "=", id).executeTakeFirst();
     },
 
-    async create(data: { name: string; slackUserId?: string; whatsappNumber?: string }) {
+    async create(data: { name: string; slackUserId?: string; whatsappNumber?: string; email?: string | null }) {
       const id = randomUUID();
       await db
         .insertInto("users")
@@ -29,13 +33,17 @@ export function createUserRepository(db: Kysely<DB>) {
           name: data.name,
           slack_user_id: data.slackUserId ?? null,
           whatsapp_number: data.whatsappNumber ?? null,
+          email: data.email ?? null,
         })
         .execute();
 
       return db.selectFrom("users").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
     },
 
-    async update(id: string, data: { name?: string; email?: string | null; whatsappNumber?: string | null }) {
+    async update(
+      id: string,
+      data: { name?: string; email?: string | null; whatsappNumber?: string | null; slackUserId?: string | null },
+    ) {
       const values: Record<string, unknown> = {};
       if (data.name !== undefined) values.name = data.name;
       if (data.email !== undefined) {
@@ -47,6 +55,7 @@ export function createUserRepository(db: Kysely<DB>) {
         }
       }
       if (data.whatsappNumber !== undefined) values.whatsapp_number = data.whatsappNumber;
+      if (data.slackUserId !== undefined) values.slack_user_id = data.slackUserId;
 
       if (Object.keys(values).length > 0) {
         await db.updateTable("users").set(values).where("id", "=", id).execute();
